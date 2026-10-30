@@ -235,8 +235,8 @@ require('./js/camera.js');
   assert.strictEqual(window.targetTracker.primaryTarget.class, 'person', 'Primary target class must be person');
   assert.strictEqual(window.targetTracker.primaryTarget.isPrimaryTarget, true, 'isPrimaryTarget flag must be true');
   assert.strictEqual(spokenUtterances.length, 1, 'Exactly one announcement spoken');
-  assert.strictEqual(spokenUtterances[0].text, 'Person detected. Tracking started.');
-  console.log('  ✔ Target automatically selected and locked with announcement: "Person detected. Tracking started."');
+  assert.strictEqual(spokenUtterances[0].text, 'Person is directly ahead in the camera view.');
+  console.log('  ✔ Target automatically selected and locked with announcement: "Person is directly ahead in the camera view."');
 
   const lockedId = window.targetTracker.primaryTarget.id;
 
@@ -262,7 +262,7 @@ require('./js/camera.js');
   assert.strictEqual(window.targetTracker.primaryTarget.id, lockedId, 'Tracking ID must remain strictly identical');
   assert.strictEqual(window.targetTracker.primaryTarget.proximityTrend, 'APPROACHING', 'Trend must be APPROACHING');
   assert.strictEqual(spokenUtterances.length, 1);
-  assert.strictEqual(spokenUtterances[0].text, 'Person is getting closer.');
+  assert.strictEqual(spokenUtterances[0].text, 'Person directly ahead is getting closer.');
   console.log('  ✔ Tracking ID remained stable across movement and proximity trend updated to APPROACHING');
 
   // ====================================================================
@@ -288,7 +288,7 @@ require('./js/camera.js');
   assert.strictEqual(window.targetTracker.primaryTarget.id, lockedId, 'Tracking ID must remain stable');
   assert.strictEqual(window.targetTracker.primaryTarget.proximityTrend, 'MOVING AWAY');
   assert.strictEqual(spokenUtterances.length, 1);
-  assert.strictEqual(spokenUtterances[0].text, 'Person is moving away.');
+  assert.strictEqual(spokenUtterances[0].text, 'Person directly ahead is moving away.');
   console.log('  ✔ Shrinking apparent size correctly detected as MOVING AWAY');
 
   // ====================================================================
@@ -314,7 +314,7 @@ require('./js/camera.js');
   currentTime += 1000;
 
   // Person A is at [430, 180, 90, 180] (area 16,200)
-  // Person B enters at [200, 40, 260, 480] (area 124,800 -> MUCH closer!)
+  // Person B enters at [200, 40, 260, 480] (area 124,800 -> MUCH closer, on LEFT!)
   const frameTwoPeople = [
     { bbox: [430, 180, 90, 180], class: 'person', score: 0.90 }, // Person A (Far)
     { bbox: [200, 40, 260, 480], class: 'person', score: 0.95 }  // Person B (Close)
@@ -329,7 +329,7 @@ require('./js/camera.js');
   assert.notStrictEqual(window.targetTracker.primaryTarget.id, lockedId, 'Target ID must have switched');
   assert.strictEqual(window.targetTracker.primaryTarget.class, 'person');
   assert.strictEqual(spokenUtterances.length, 1);
-  assert.strictEqual(spokenUtterances[0].text, 'Person is now the closest estimated target.');
+  assert.strictEqual(spokenUtterances[0].text, 'Person on your left is now the closest estimated target.');
   console.log('  ✔ Automatically switched primary target to closer Person B after 3-cycle confirmation');
 
   const personBId = window.targetTracker.primaryTarget.id;
@@ -355,7 +355,7 @@ require('./js/camera.js');
 
   assert.strictEqual(window.targetTracker.primaryTarget.class, 'chair', 'Primary target must now be chair');
   assert.strictEqual(spokenUtterances.length, 1);
-  assert.strictEqual(spokenUtterances[0].text, 'Chair is now the closest estimated target.');
+  assert.strictEqual(spokenUtterances[0].text, 'Chair on your left is now the closest estimated target.');
   console.log('  ✔ Switched primary target to chair according to target-selection policy');
 
   // ====================================================================
@@ -436,31 +436,32 @@ require('./js/camera.js');
   window.voiceAssistant.setLanguage('hi');
   spokenUtterances = [];
 
-  const dummyPerson = { class: 'person' };
-  const dummyChair = { class: 'chair' };
+  const dummyPerson = { class: 'person', spatial: { position: 'Centre' } };
+  const dummyChair = { class: 'chair', spatial: { position: 'Right' } };
+  const dummyLeftPerson = { class: 'person', spatial: { position: 'Left' } };
 
   window.voiceAssistant.announceTargetEvent('target_acquired', dummyPerson);
-  assert.strictEqual(spokenUtterances[0].text, 'व्यक्ति दिखाई दिया। ट्रैकिंग शुरू हुई।');
+  assert.strictEqual(spokenUtterances[0].text, 'व्यक्ति कैमरा दृश्य में सीधे आगे है।');
 
   window.voiceAssistant.lastAnnouncementTime = 0;
   currentTime += 3000;
   window.voiceAssistant.announceTargetEvent('approaching', dummyPerson);
-  assert.strictEqual(spokenUtterances[1].text, 'व्यक्ति पास आ रहा है।');
+  assert.strictEqual(spokenUtterances[1].text, 'सीधे आगे व्यक्ति पास आ रहा है।');
 
   window.voiceAssistant.lastAnnouncementTime = 0;
   currentTime += 3000;
   window.voiceAssistant.announceTargetEvent('close', dummyPerson);
-  assert.strictEqual(spokenUtterances[2].text, 'व्यक्ति पास है।');
+  assert.strictEqual(spokenUtterances[2].text, 'सीधे आगे व्यक्ति बहुत पास है।');
 
   window.voiceAssistant.lastAnnouncementTime = 0;
   currentTime += 3000;
-  window.voiceAssistant.announceTargetEvent('moving_away', dummyPerson);
-  assert.strictEqual(spokenUtterances[3].text, 'व्यक्ति दूर जा रहा है।');
+  window.voiceAssistant.announceTargetEvent('moving_away', dummyLeftPerson);
+  assert.strictEqual(spokenUtterances[3].text, 'बाईं ओर व्यक्ति दूर जा रहा है।');
 
   window.voiceAssistant.lastAnnouncementTime = 0;
   currentTime += 3000;
   window.voiceAssistant.announceTargetEvent('target_switched', dummyChair);
-  assert.strictEqual(spokenUtterances[4].text, 'कुर्सी अब सबसे नज़दीकी लक्ष्य है।');
+  assert.strictEqual(spokenUtterances[4].text, 'दाईं ओर कुर्सी अब सबसे नज़दीकी लक्ष्य है।');
 
   window.voiceAssistant.lastAnnouncementTime = 0;
   currentTime += 3000;
@@ -514,8 +515,254 @@ require('./js/camera.js');
   assert.strictEqual(window.targetTracker.trackedObjects.size, 0);
   console.log('  ✔ Camera stop and speech toggle cleanly purged all active tracking state and speech queues');
 
+  // ====================================================================
+  // TEST 13: ACCURATE LEFT / CENTRE / RIGHT VERTICAL ZONE CALCULATION
+  // ====================================================================
+  console.log('[TEST 13] Vertical Zone Calculation (LEFT: 0-33%, CENTRE: 33-67%, RIGHT: 67-100%)');
+  // Full video width 1280px
+  // Object on Left: center at 200px (200/1280 = 0.15625 < 0.3333)
+  const leftPos = window.targetTracker.computeSpatialPosition([100, 100, 200, 300], 1280, null);
+  assert.strictEqual(leftPos.position, 'Left', 'Zone must be Left');
+  assert.strictEqual(leftPos.normalizedX, 200 / 1280);
+
+  // Object in Centre: center at 640px (640/1280 = 0.50)
+  const centrePos = window.targetTracker.computeSpatialPosition([540, 100, 200, 300], 1280, null);
+  assert.strictEqual(centrePos.position, 'Centre', 'Zone must be Centre');
+  assert.strictEqual(centrePos.normalizedX, 0.5);
+
+  // Object on Right: center at 1100px (1100/1280 = 0.859375 > 0.6667)
+  const rightPos = window.targetTracker.computeSpatialPosition([1000, 100, 200, 300], 1280, null);
+  assert.strictEqual(rightPos.position, 'Right', 'Zone must be Right');
+  assert.strictEqual(rightPos.normalizedX, 1100 / 1280);
+  console.log('  ✔ Calculated normalized positions and exact vertical zones correctly');
+
+  // ====================================================================
+  // TEST 14: BOUNDARY HYSTERESIS MARGIN (3.5% = 0.035)
+  // ====================================================================
+  console.log('[TEST 14] Zone Boundary Hysteresis Margin (3.5% Stability Buffer)');
+  // Boundary 1/3 ~ 0.3333. Threshold to exit Left is 1/3 + 0.035 = 0.3683 (471.4px in 1280px frame)
+  // Center at 440px -> normX = 440/1280 = 0.34375 (crosses 0.3333, but within hysteresis margin!)
+  const leftHysteresis = window.targetTracker.computeSpatialPosition([340, 100, 200, 300], 1280, 'Left');
+  assert.strictEqual(leftHysteresis.position, 'Left', 'Must remain Left because normX (0.3438) has not crossed 0.3683 buffer');
+
+  // Center at 480px -> normX = 480/1280 = 0.375 (exceeds 0.3683 buffer -> switches to Centre)
+  const leftExited = window.targetTracker.computeSpatialPosition([380, 100, 200, 300], 1280, 'Left');
+  assert.strictEqual(leftExited.position, 'Centre', 'Must cleanly transition to Centre once hysteresis margin is passed');
+
+  // Boundary 2/3 ~ 0.6667. Threshold to exit Right is 2/3 - 0.035 = 0.6317 (808.5px in 1280px frame)
+  // Center at 830px -> normX = 830/1280 = 0.6484 (drops below 0.6667, but within hysteresis margin!)
+  const rightHysteresis = window.targetTracker.computeSpatialPosition([730, 100, 200, 300], 1280, 'Right');
+  assert.strictEqual(rightHysteresis.position, 'Right', 'Must remain Right because normX (0.6484) has not dropped below 0.6317 buffer');
+
+  // Center at 780px -> normX = 780/1280 = 0.6094 (drops below 0.6317 buffer -> switches to Centre)
+  const rightExited = window.targetTracker.computeSpatialPosition([680, 100, 200, 300], 1280, 'Right');
+  assert.strictEqual(rightExited.position, 'Centre', 'Must cleanly transition to Centre once hysteresis margin is passed');
+  console.log('  ✔ Hysteresis margin strictly eliminated jitter at 0.3333 and 0.6667 boundaries');
+
+  // ====================================================================
+  // TEST 15: DIRECTION ANNOUNCEMENTS UPON TARGET LOCK
+  // ====================================================================
+  console.log('[TEST 15] Target Lock Direction Announcements');
+  window.targetTracker.reset();
+  window.voiceAssistant.setLanguage('en');
+  window.voiceAssistant.setAnnouncementsEnabled(true);
+  spokenUtterances = [];
+
+  // Lock target on Left
+  currentTime += 1000;
+  window.targetTracker.update([{ bbox: [100, 100, 150, 300], class: 'person', score: 0.92 }], 1280, 720);
+  assert.strictEqual(spokenUtterances[0].text, 'Person detected on your left.');
+
+  // Unlock and lock target on Right
+  window.targetTracker.unlockTarget();
+  spokenUtterances = [];
+  currentTime += 1000;
+  window.targetTracker.update([{ bbox: [1000, 100, 150, 300], class: 'chair', score: 0.92 }], 1280, 720);
+  assert.strictEqual(spokenUtterances[0].text, 'Chair detected on your right.');
+
+  // Unlock and lock target in Centre
+  window.targetTracker.unlockTarget();
+  spokenUtterances = [];
+  currentTime += 1000;
+  window.targetTracker.update([{ bbox: [565, 100, 150, 300], class: 'bottle', score: 0.90 }], 1280, 720);
+  assert.strictEqual(spokenUtterances[0].text, 'Bottle is directly ahead in the camera view.');
+  console.log('  ✔ Verified all 3 initial target lock direction phrases: Left, Right, and Centre');
+
+  // ====================================================================
+  // TEST 16: MULTI-FRAME CONFIRMED DIRECTION TRANSITION ANNOUNCEMENTS
+  // ====================================================================
+  console.log('[TEST 16] Multi-Frame Confirmed Direction Changes');
+  window.targetTracker.reset();
+  spokenUtterances = [];
+  currentTime += 1000;
+
+  // Person starts on Left
+  window.targetTracker.update([{ bbox: [260, 100, 150, 300], class: 'person', score: 0.92 }], 1280, 720);
+  assert.strictEqual(spokenUtterances[0].text, 'Person detected on your left.');
+  spokenUtterances = [];
+
+  // Frame 1 in Centre: 1st cycle should NOT announce yet (requires 2 consecutive cycles)
+  currentTime += 100;
+  window.targetTracker.update([{ bbox: [420, 100, 150, 300], class: 'person', score: 0.92 }], 1280, 720);
+  assert.strictEqual(spokenUtterances.length, 0, 'Single cycle transition must not announce without confirmation');
+
+  // Frame 2 in Centre: 2nd cycle confirms direction change!
+  currentTime += 2100; // Past 2.0s direction cooldown
+  window.targetTracker.update([{ bbox: [420, 100, 150, 300], class: 'person', score: 0.92 }], 1280, 720);
+  assert.strictEqual(spokenUtterances.length, 1);
+  assert.strictEqual(spokenUtterances[0].text, 'Person is directly ahead in the camera view.');
+
+  // Move to Right for 2 confirmed cycles
+  spokenUtterances = [];
+  currentTime += 100;
+  window.targetTracker.update([{ bbox: [650, 100, 150, 300], class: 'person', score: 0.92 }], 1280, 720);
+  currentTime += 100;
+  window.targetTracker.update([{ bbox: [850, 100, 150, 300], class: 'person', score: 0.92 }], 1280, 720);
+  assert.strictEqual(spokenUtterances.length, 0, '1st cycle on Right must not announce');
+
+  currentTime += 2100;
+  window.targetTracker.update([{ bbox: [850, 100, 150, 300], class: 'person', score: 0.92 }], 1280, 720);
+  assert.strictEqual(spokenUtterances.length, 1);
+  assert.strictEqual(spokenUtterances[0].text, 'Person is now on your right.');
+  console.log('  ✔ Confirmed multi-frame direction transitions without jitter');
+
+  // ====================================================================
+  // TEST 17: COMBINED DIRECTION + PROXIMITY ANNOUNCEMENTS
+  // ====================================================================
+  console.log('[TEST 17] Combined Direction + Proximity Alerts');
+  window.targetTracker.reset();
+  spokenUtterances = [];
+  currentTime += 1000;
+
+  // Person enters on Right
+  window.targetTracker.update([{ bbox: [1000, 100, 100, 200], class: 'person', score: 0.92 }], 1280, 720);
+  spokenUtterances = [];
+
+  // Approach on Right
+  const rightApproach = [
+    [980, 80, 120, 240],
+    [960, 60, 140, 280],
+    [940, 40, 170, 340]
+  ];
+  for (const b of rightApproach) {
+    currentTime += 100;
+    window.targetTracker.update([{ bbox: b, class: 'person', score: 0.92 }], 1280, 720);
+  }
+  assert.strictEqual(spokenUtterances.length, 1);
+  assert.strictEqual(spokenUtterances[0].text, 'Person on your right is getting closer.');
+
+  // Close obstacle in Centre
+  spokenUtterances = [];
+  currentTime += 3500;
+  const dummyClose = { class: 'person', spatial: { position: 'Centre' }, proximityState: 'CLOSE' };
+  window.voiceAssistant.announceTargetEvent('close', dummyClose);
+  assert.strictEqual(spokenUtterances[0].text, 'Person directly ahead is close.');
+
+  // Moving away on Left
+  spokenUtterances = [];
+  currentTime += 3500;
+  const dummyAway = { class: 'person', spatial: { position: 'Left' }, proximityState: 'MOVING AWAY' };
+  window.voiceAssistant.announceTargetEvent('moving_away', dummyAway);
+  assert.strictEqual(spokenUtterances[0].text, 'Person on your left is moving away.');
+  console.log('  ✔ Verified combined direction + proximity alerts in English');
+
+  // ====================================================================
+  // TEST 18: HINDI DIRECTION & PROXIMITY ANNOUNCEMENTS
+  // ====================================================================
+  console.log('[TEST 18] Localized Hindi Direction & Proximity Announcements');
+  window.voiceAssistant.setLanguage('hi');
+  spokenUtterances = [];
+  currentTime += 1000;
+
+  // Hindi target lock on Left
+  window.voiceAssistant.announceTargetEvent('target_acquired', { class: 'person', spatial: { position: 'Left' } });
+  assert.strictEqual(spokenUtterances[0].text, 'व्यक्ति आपकी बाईं ओर दिखाई दिया।');
+
+  // Hindi direction change to Right
+  spokenUtterances = [];
+  currentTime += 3000;
+  window.voiceAssistant.announceTargetEvent('direction_changed', { class: 'person', spatial: { position: 'Right' } });
+  assert.strictEqual(spokenUtterances[0].text, 'व्यक्ति अब आपकी दाईं ओर है।');
+
+  // Hindi combined proximity alerts
+  spokenUtterances = [];
+  currentTime += 3000;
+  window.voiceAssistant.announceTargetEvent('approaching', { class: 'person', spatial: { position: 'Right' } });
+  assert.strictEqual(spokenUtterances[0].text, 'दाईं ओर व्यक्ति पास आ रहा है।');
+
+  spokenUtterances = [];
+  currentTime += 3000;
+  window.voiceAssistant.announceTargetEvent('close', { class: 'person', spatial: { position: 'Centre' } });
+  assert.strictEqual(spokenUtterances[0].text, 'सीधे आगे व्यक्ति बहुत पास है।');
+
+  window.voiceAssistant.setLanguage('en');
+  console.log('  ✔ Verified accurate Hindi direction phrasing and grammatical structure');
+
+  // ====================================================================
+  // TEST 19: AUTOMATIC TARGET RESET WHEN OBJECT LEAVES FRAME
+  // ====================================================================
+  console.log('[TEST 19] Target Leaves Frame & Automatic Next-Closest Switch');
+  window.targetTracker.reset();
+  spokenUtterances = [];
+  currentTime += 1000;
+
+  // Person A and Chair B are both in the camera view
+  const bothInFrame = [
+    { bbox: [100, 100, 200, 400], class: 'person', score: 0.94 }, // Person A (Locked)
+    { bbox: [950, 150, 180, 360], class: 'chair', score: 0.91 }   // Chair B (Right)
+  ];
+  window.targetTracker.update(bothInFrame, 1280, 720);
+  assert.strictEqual(window.targetTracker.primaryTarget.class, 'person');
+  const personTrackId = window.targetTracker.primaryTarget.id;
+
+  spokenUtterances = [];
+  currentTime += 500;
+
+  // Person A walks completely out of the frame! Only Chair B remains:
+  const chairOnlyFrame = [
+    { bbox: [950, 150, 180, 360], class: 'chair', score: 0.91 }
+  ];
+  window.targetTracker.update(chairOnlyFrame, 1280, 720);
+
+  // System must IMMEDIATELY release old target and lock Chair B!
+  assert.strictEqual(window.targetTracker.lockStatus, 'locked');
+  assert.strictEqual(window.targetTracker.primaryTarget.class, 'chair');
+  assert.notStrictEqual(window.targetTracker.primaryTarget.id, personTrackId);
+  assert.strictEqual(spokenUtterances.length, 1);
+  assert.strictEqual(spokenUtterances[0].text, 'Person left the frame. Now tracking Chair on your right.');
+  console.log('  ✔ Released departed target immediately and switched to next closest candidate');
+
+  // Now Chair B leaves the frame and NO OTHER OBJECTS remain in view:
+  spokenUtterances = [];
+  currentTime += 500;
+  window.targetTracker.update([], 1280, 720); // 1st absent frame -> temporarily_lost grace period (2.5s)
+  assert.strictEqual(window.targetTracker.lockStatus, 'temporarily_lost');
+
+  // After 2.5s grace period expires with no objects returning:
+  currentTime += 2600;
+  window.targetTracker.update([], 1280, 720);
+  assert.strictEqual(window.targetTracker.lockStatus, 'not_locked');
+  assert.strictEqual(window.targetTracker.primaryTarget, null);
+  assert.strictEqual(spokenUtterances.length, 1);
+  assert.strictEqual(spokenUtterances[0].text, 'Chair left the camera view.');
+  console.log('  ✔ Grace period (2.5s) smoothly transitioned to Searching/Not Locked when no objects remained');
+
+  // ====================================================================
+  // TEST 20: CANVAS HUD AND DASHBOARD DIRECTION DISPLAY
+  // ====================================================================
+  console.log('[TEST 20] Canvas HUD & Dashboard Direction Display Verification');
+  window.targetTracker.reset();
+  currentTime += 1000;
+
+  window.targetTracker.update([{ bbox: [560, 100, 160, 320], class: 'person', score: 0.95 }], 1280, 720);
+  const statusEl = document.getElementById('valPrimaryPersonStatus');
+  assert(statusEl.textContent.includes('PERSON'), 'Dashboard must display class');
+  assert(statusEl.textContent.includes('CENTRE'), 'Dashboard must display direction');
+
+  console.log('  ✔ Dashboard and canvas HUD display primary target direction prominently');
+
   console.log('\n================================================================');
-  console.log('🎉 ALL 12 AUDIT TESTS PASSED WITH 0 ERRORS');
+  console.log('🎉 ALL 20 AUDIT TESTS PASSED WITH 0 ERRORS');
   console.log('================================================================');
 })().catch(err => {
   console.error('TEST FAILED:', err);

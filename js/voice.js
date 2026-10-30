@@ -264,6 +264,24 @@ class VoiceAssistant {
   }
 
   /**
+   * Helper to retrieve direction phrasing in English and Hindi
+   */
+  getDirectionPhrase(direction, lang, mode = 'inline') {
+    const isHi = lang === 'hi';
+    const dir = (direction || 'Centre').toLowerCase();
+
+    if (isHi) {
+      if (dir === 'left') return mode === 'initial' ? 'आपकी बाईं ओर' : 'बाईं ओर';
+      if (dir === 'right') return mode === 'initial' ? 'आपकी दाईं ओर' : 'दाईं ओर';
+      return mode === 'initial' ? 'कैमरा दृश्य में सीधे आगे' : 'सीधे आगे';
+    } else {
+      if (dir === 'left') return 'on your left';
+      if (dir === 'right') return 'on your right';
+      return mode === 'initial' ? 'is directly ahead in the camera view' : 'directly ahead';
+    }
+  }
+
+  /**
    * Primary Target Voice Event Announcer
    * All speech notifications pass through this single centralized method.
    */
@@ -273,51 +291,114 @@ class VoiceAssistant {
     const rawClass = (target && target.class) || 'object';
     const isHi = this.currentLanguage === 'hi';
     const name = this.getFriendlyName(rawClass, isHi ? 'hi' : 'en');
+    const pos = (target && target.spatial && target.spatial.position) || (extra && extra.direction) || 'Centre';
+
+    let prevName = '';
+    if (extra && extra.previousTarget) {
+      prevName = this.getFriendlyName(extra.previousTarget.class || 'object', isHi ? 'hi' : 'en');
+    }
 
     let text = '';
     let priority = 'normal';
 
     switch (eventType) {
       case 'target_acquired':
-        text = isHi
-          ? `${name} दिखाई दिया। ट्रैकिंग शुरू हुई।`
-          : `${name} detected. Tracking started.`;
         priority = 'primary';
+        if (pos === 'Left') {
+          text = isHi ? `${name} आपकी बाईं ओर दिखाई दिया।` : `${name} detected on your left.`;
+        } else if (pos === 'Right') {
+          text = isHi ? `${name} आपकी दाईं ओर दिखाई दिया।` : `${name} detected on your right.`;
+        } else {
+          text = isHi ? `${name} कैमरा दृश्य में सीधे आगे है।` : `${name} is directly ahead in the camera view.`;
+        }
+        break;
+
+      case 'direction_changed':
+        priority = 'primary';
+        if (pos === 'Left') {
+          text = isHi ? `${name} अब आपकी बाईं ओर है।` : `${name} is now on your left.`;
+        } else if (pos === 'Right') {
+          text = isHi ? `${name} अब आपकी दाईं ओर है।` : `${name} is now on your right.`;
+        } else {
+          text = isHi ? `${name} अब कैमरा दृश्य में सीधे आगे है।` : `${name} is directly ahead in the camera view.`;
+        }
         break;
 
       case 'approaching':
-        text = isHi
-          ? `${name} पास आ रहा है।`
-          : `${name} is getting closer.`;
         priority = 'primary';
+        if (isHi) {
+          const dirHi = pos === 'Left' ? 'बाईं ओर' : (pos === 'Right' ? 'दाईं ओर' : 'सीधे आगे');
+          text = `${dirHi} ${name} पास आ रहा है।`;
+        } else {
+          const dirEn = pos === 'Left' ? 'on your left' : (pos === 'Right' ? 'on your right' : 'directly ahead');
+          text = `${name} ${dirEn} is getting closer.`;
+        }
         break;
 
       case 'close':
-        text = isHi
-          ? `${name} पास है।`
-          : `${name} is close.`;
         priority = 'urgent';
+        if (isHi) {
+          const dirHi = pos === 'Left' ? 'बाईं ओर' : (pos === 'Right' ? 'दाईं ओर' : 'सीधे आगे');
+          text = `${dirHi} ${name} बहुत पास है।`;
+        } else {
+          const dirEn = pos === 'Left' ? 'on your left' : (pos === 'Right' ? 'on your right' : 'directly ahead');
+          text = `${name} ${dirEn} is close.`;
+        }
         break;
 
       case 'moving_away':
-        text = isHi
-          ? `${name} दूर जा रहा है।`
-          : `${name} is moving away.`;
         priority = 'normal';
+        if (isHi) {
+          const dirHi = pos === 'Left' ? 'बाईं ओर' : (pos === 'Right' ? 'दाईं ओर' : 'सीधे आगे');
+          text = `${dirHi} ${name} दूर जा रहा है।`;
+        } else {
+          const dirEn = pos === 'Left' ? 'on your left' : (pos === 'Right' ? 'on your right' : 'directly ahead');
+          text = `${name} ${dirEn} is moving away.`;
+        }
         break;
 
       case 'far':
-        text = isHi
-          ? `${name} दूर है।`
-          : `${name} is far away.`;
         priority = 'normal';
+        if (isHi) {
+          const dirHi = pos === 'Left' ? 'बाईं ओर' : (pos === 'Right' ? 'दाईं ओर' : 'सीधे आगे');
+          text = `${dirHi} ${name} दूर है।`;
+        } else {
+          const dirEn = pos === 'Left' ? 'on your left' : (pos === 'Right' ? 'on your right' : 'directly ahead');
+          text = `${name} ${dirEn} is far away.`;
+        }
         break;
 
       case 'target_switched':
-        text = isHi
-          ? `${name} अब सबसे नज़दीकी लक्ष्य है।`
-          : `${name} is now the closest estimated target.`;
         priority = 'urgent';
+        if (isHi) {
+          const dirHi = pos === 'Left' ? 'बाईं ओर' : (pos === 'Right' ? 'दाईं ओर' : 'सीधे आगे');
+          text = `${dirHi} ${name} अब सबसे नज़दीकी लक्ष्य है।`;
+        } else {
+          const dirEn = pos === 'Left' ? 'on your left' : (pos === 'Right' ? 'on your right' : 'directly ahead');
+          text = `${name} ${dirEn} is now the closest estimated target.`;
+        }
+        break;
+
+      case 'target_left_switch':
+        priority = 'urgent';
+        if (isHi) {
+          const dirHi = pos === 'Left' ? 'बाईं ओर' : (pos === 'Right' ? 'दाईं ओर' : 'सीधे आगे');
+          text = prevName 
+            ? `${prevName} फ्रेम से बाहर चला गया। अब ${dirHi} ${name} को ट्रैक किया जा रहा है।`
+            : `अब ${dirHi} ${name} को ट्रैक किया जा रहा है।`;
+        } else {
+          const dirEn = pos === 'Left' ? 'on your left' : (pos === 'Right' ? 'on your right' : 'directly ahead');
+          text = prevName 
+            ? `${prevName} left the frame. Now tracking ${name} ${dirEn}.`
+            : `Now tracking ${name} ${dirEn}.`;
+        }
+        break;
+
+      case 'target_left_frame':
+        priority = 'urgent';
+        text = isHi
+          ? `${name} कैमरा दृश्य से बाहर चला गया।`
+          : `${name} left the camera view.`;
         break;
 
       case 'uncertain':
@@ -328,17 +409,17 @@ class VoiceAssistant {
         break;
 
       case 'target_lost':
+        priority = 'urgent';
         text = isHi
           ? `${name} अस्थायी रूप से खो गया है।`
           : `${name} temporarily lost.`;
-        priority = 'urgent';
         break;
 
       case 'unlocked':
+        priority = 'primary';
         text = isHi
           ? `लक्ष्य अनलॉक हो गया है।`
           : `Target unlocked.`;
-        priority = 'primary';
         break;
 
       default:

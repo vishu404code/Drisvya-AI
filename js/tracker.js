@@ -34,8 +34,15 @@ class UnifiedTargetTracker {
     this.primaryTarget = null;
     this.primaryTargetId = null;
     this.lockStatus = 'not_locked'; // 'not_locked' | 'locked' | 'temporarily_lost'
-    this.lostRecoveryPeriod = 3000; // 3.0s recovery window for brief occlusion
+    this.lostRecoveryPeriod = 2500; // 2.5s recovery window for brief occlusion / frame departure
     this.lostSince = null;
+    this.targetAbsentCycles = 0;
+
+    // Direction Tracking & Zone Hysteresis
+    this.candidateDirection = null;
+    this.candidateDirectionCycles = 0;
+    this.candidateDirectionConfirmation = 2; // 2 consecutive cycles required to confirm direction change
+    this.lastDirectionAnnouncedTime = 0;
 
     // Target Switching & Hysteresis
     this.switchCandidateId = null;
@@ -198,7 +205,8 @@ class UnifiedTargetTracker {
         const matched = unmatchedDetections.splice(bestDetIndex, 1)[0];
         track.bbox = matched.bbox;
         track.score = matched.score;
-        track.spatial = matched.spatial || this.computeSpatialPosition(matched.bbox, vWidth);
+        const prevPos = track.spatial ? track.spatial.position : null;
+        track.spatial = matched.spatial || this.computeSpatialPosition(matched.bbox, vWidth, prevPos);
         track.lastSeen = now;
         track.absentFrames = 0;
         track.consecutiveFrames++;
@@ -221,7 +229,7 @@ class UnifiedTargetTracker {
         class: (det.class || 'object').toLowerCase(),
         bbox: det.bbox,
         score: det.score || 0.85,
-        spatial: det.spatial || this.computeSpatialPosition(det.bbox, vWidth),
+        spatial: det.spatial || this.computeSpatialPosition(det.bbox, vWidth, null),
         firstSeen: now,
         lastSeen: now,
         consecutiveFrames: 1,
@@ -238,6 +246,7 @@ class UnifiedTargetTracker {
         proximityTrend: 'STABLE',
         proximityState: 'FAR',
         lastAnnouncedState: null,
+        lastAnnouncedDirection: null,
         relevanceScore: 0.1,
 
         history: [
@@ -272,13 +281,67 @@ class UnifiedTargetTracker {
     return unionArea > 0 ? interArea / unionArea : 0;
   }
 
-  computeSpatialPosition(bbox, vWidth) {
+  /**
+   * Determine spatial zone (LEFT / CENTRE / RIGHT) with boundary hysteresis margin.
+   * Frame zones:
+   * - LEFT: 0%–33.33% (0.0 to 1/3)
+   * - CENTRE: 33.33%–66.67% (1/3 to 2/3)
+   * - RIGHT: 66.67%–100% (2/3 to 1.0)
+   * 
+   * Uses original uncropped video frame width and a 3.5% (0.035) hysteresis buffer
+   * to strictly eliminate direction flipping near zone thresholds.
+   */
+  computeSpatialPosition(bbox, vWidth = 1280, prevPosition = null) {
     const [x, , w] = bbox;
-    const centerX = x + w / 2;
-    const third = vWidth / 3;
-    if (centerX < third) return { position: 'Left' };
-    if (centerX > third * 2) return { position: 'Right' };
-    return { position: 'Centre' };
+    const objectCenterX = x + w / 2;
+    const safeVWidth = Math.max(1, vWidth);
+    const normalizedX = Math.max(0.0, Math.min(1.0, objectCenterX / safeVWidth));
+
+    const leftBoundary = 1 / 3;      // ~0.33333
+    const rightBoundary = 2 / 3;     // ~0.66667
+    const hysteresisMargin = 0.035;  // 3.5% margin
+
+    let position = 'Centre';
+
+    if (prevPosition === 'Left') {
+      // Must clearly cross past (1/3 + margin = ~0.3683) to transition out of Left
+      if (normalizedX > (leftBoundary + hysteresisMargin)) {
+        position = (normalizedX > (rightBoundary + hysteresisMargin)) ? 'Right' : 'Centre';
+      } else {
+        position = 'Left';
+      }
+    } else if (prevPosition === 'Right') {
+      // Must clearly drop below (2/3 - margin = ~0.6317) to transition out of Right
+      if (normalizedX < (rightBoundary - hysteresisMargin)) {
+        position = (normalizedX < (leftBoundary - hysteresisMargin)) ? 'Left' : 'Centre';
+      } else {
+        position = 'Right';
+      }
+    } else if (prevPosition === 'Centre') {
+      // Must clearly pass outside hysteresis margins to leave Centre
+      if (normalizedX < (leftBoundary - hysteresisMargin)) {
+        position = 'Left';
+      } else if (normalizedX > (rightBoundary + hysteresisMargin)) {
+        position = 'Right';
+      } else {
+        position = 'Centre';
+      }
+    } else {
+      // Initial state without historical bias
+      if (normalizedX < leftBoundary) {
+        position = 'Left';
+      } else if (normalizedX > rightBoundary) {
+        position = 'Right';
+      } else {
+        position = 'Centre';
+      }
+    }
+
+    return {
+      position,
+      normalizedX,
+      objectCenterX
+    };
   }
 
   /**
@@ -407,13 +470,17 @@ class UnifiedTargetTracker {
         if (elapsed <= this.lostRecoveryPeriod) {
           this.lockStatus = 'temporarily_lost';
         } else {
+          // Grace period expired (2.5s) with target absent and no other objects in view
           const lost = this.primaryTarget;
           this.primaryTarget = null;
           this.primaryTargetId = null;
           this.lockStatus = 'not_locked';
           this.lostSince = null;
+          this.targetAbsentCycles = 0;
+          this.candidateDirection = null;
+          this.candidateDirectionCycles = 0;
           if (window.voiceAssistant) {
-            window.voiceAssistant.announceTargetEvent('target_lost', lost);
+            window.voiceAssistant.announceTargetEvent('target_left_frame', lost);
           }
         }
       } else {
@@ -436,11 +503,12 @@ class UnifiedTargetTracker {
 
     // CASE 1: No current primary target -> Automatically lock the best candidate!
     if (!this.primaryTarget || this.lockStatus === 'not_locked') {
+      this.targetAbsentCycles = 0;
       this.lockTarget(bestCandidate, 'auto_select');
       return;
     }
 
-    // CASE 2: Primary target is active
+    // CASE 2: Primary target is active and still visible in this frame
     const currentTargetVisible = visible.find(o => o.id === this.primaryTarget.id);
 
     if (currentTargetVisible) {
@@ -448,13 +516,14 @@ class UnifiedTargetTracker {
       this.primaryTargetId = currentTargetVisible.id;
       this.lockStatus = 'locked';
       this.lostSince = null;
+      this.targetAbsentCycles = 0;
 
       // Mark primary target flag on tracks
       for (const obj of visible) {
         obj.isPrimaryTarget = (obj.id === this.primaryTarget.id);
       }
 
-      // Automatic Target Switching with Hysteresis
+      // Automatic Target Switching with Hysteresis (Closer Target Switching)
       if (bestCandidate.id !== this.primaryTarget.id) {
         const threshold = (this.primaryTarget.relevanceScore * this.switchMarginMultiplier) + this.switchMarginOffset;
 
@@ -485,35 +554,66 @@ class UnifiedTargetTracker {
       // Proximity State Change Monitoring
       this.checkTargetProximityChange(this.primaryTarget, now);
 
-    } else {
-      // Primary target is absent in this frame
-      if (this.lostSince === null) {
-        this.lostSince = now;
-      }
-      const elapsed = now - this.lostSince;
+      // Direction Change Monitoring (with multi-frame confirmation)
+      this.checkTargetDirectionChange(this.primaryTarget, now);
 
-      // If an immediate close obstacle is in view while current is missing for > 1.2s, switch to it
-      if (elapsed > 1200 && bestCandidate && bestCandidate.proximityState === 'CLOSE') {
-        this.lockTarget(bestCandidate, 'auto_switch');
+    } else {
+      // CASE 3: Primary target is absent in this frame, but other objects ARE visible!
+      this.targetAbsentCycles = (this.targetAbsentCycles || 0) + 1;
+
+      // When the primary target completely leaves the camera frame,
+      // release old target immediately and automatically select the next closest valid detected object.
+      if (bestCandidate) {
+        const previousTarget = this.primaryTarget;
+        this.lockTarget(bestCandidate, 'target_left_switch', { previousTarget });
         return;
       }
+    }
+  }
 
-      if (elapsed <= this.lostRecoveryPeriod) {
-        this.lockStatus = 'temporarily_lost';
+  /**
+   * Monitor primary target direction transitions (LEFT / CENTRE / RIGHT)
+   * Requires multi-frame confirmation (2 consecutive detection cycles in the new zone)
+   * to strictly eliminate rapid direction flapping.
+   */
+  checkTargetDirectionChange(target, now) {
+    if (!target || !target.spatial) return;
+    const currentPos = target.spatial.position;
+
+    if (!target.lastAnnouncedDirection) {
+      target.lastAnnouncedDirection = currentPos;
+      return;
+    }
+
+    if (currentPos !== target.lastAnnouncedDirection) {
+      if (this.candidateDirection === currentPos) {
+        this.candidateDirectionCycles++;
       } else {
-        if (bestCandidate) {
-          this.lockTarget(bestCandidate, 'auto_select');
-        } else {
-          const lost = this.primaryTarget;
-          this.primaryTarget = null;
-          this.primaryTargetId = null;
-          this.lockStatus = 'not_locked';
-          this.lostSince = null;
+        this.candidateDirection = currentPos;
+        this.candidateDirectionCycles = 1;
+      }
+
+      // Require 2 consecutive cycles in the new zone and minimum 2.0s cooldown from any announcement
+      if (this.candidateDirectionCycles >= this.candidateDirectionConfirmation) {
+        const lastSpeechTime = window.voiceAssistant ? window.voiceAssistant.lastAnnouncementTime : 0;
+        const cooldownPassed = (now - this.lastDirectionAnnouncedTime >= 2000) && (now - lastSpeechTime >= 2000);
+
+        if (cooldownPassed) {
+          target.lastAnnouncedDirection = currentPos;
+          this.candidateDirection = null;
+          this.candidateDirectionCycles = 0;
+          this.lastDirectionAnnouncedTime = now;
+
           if (window.voiceAssistant) {
-            window.voiceAssistant.announceTargetEvent('target_lost', lost);
+            window.voiceAssistant.announceTargetEvent('direction_changed', target, {
+              direction: currentPos
+            });
           }
         }
       }
+    } else {
+      this.candidateDirection = null;
+      this.candidateDirectionCycles = 0;
     }
   }
 
@@ -538,6 +638,13 @@ class UnifiedTargetTracker {
         else if (currentState === 'FAR' && target.history && target.history.length > 3) eventType = 'far';
 
         if (eventType) {
+          // Sync last announced direction because combined proximity announcements already announce current direction
+          if (target.spatial && target.spatial.position) {
+            target.lastAnnouncedDirection = target.spatial.position;
+            this.lastDirectionAnnouncedTime = now;
+            this.candidateDirection = null;
+            this.candidateDirectionCycles = 0;
+          }
           window.voiceAssistant.announceTargetEvent(eventType, target);
         }
       }
@@ -547,11 +654,11 @@ class UnifiedTargetTracker {
   /**
    * Lock a target as the primary tracking target
    */
-  lockTarget(target, reason = 'auto_select') {
+  lockTarget(target, reason = 'auto_select', extra = {}) {
     if (!target) return;
 
-    const previousTarget = this.primaryTarget;
-    if (previousTarget) {
+    const previousTarget = extra.previousTarget || this.primaryTarget;
+    if (previousTarget && previousTarget !== target) {
       previousTarget.isPrimaryTarget = false;
     }
 
@@ -559,8 +666,12 @@ class UnifiedTargetTracker {
     this.primaryTargetId = target.id;
     this.lockStatus = 'locked';
     this.lostSince = null;
+    this.targetAbsentCycles = 0;
     target.isPrimaryTarget = true;
     target.lastAnnouncedState = target.proximityState || 'FAR';
+    target.lastAnnouncedDirection = (target.spatial && target.spatial.position) || 'Centre';
+    this.candidateDirection = null;
+    this.candidateDirectionCycles = 0;
     this.lastAnnouncedState = target.lastAnnouncedState;
     this.lastProximityAnnouncedTime = Date.now();
 
@@ -570,13 +681,16 @@ class UnifiedTargetTracker {
     if (window.voiceAssistant) {
       if (reason === 'auto_switch') {
         window.voiceAssistant.announceTargetEvent('target_switched', target);
+      } else if (reason === 'target_left_switch') {
+        window.voiceAssistant.announceTargetEvent('target_left_switch', target, { previousTarget });
       } else {
         window.voiceAssistant.announceTargetEvent('target_acquired', target);
       }
     }
 
     if (window.app) {
-      window.app.logActivity(`Target locked: ${target.class} (#${target.id}) [${reason}].`, "camera");
+      const pos = (target.spatial && target.spatial.position) || 'Centre';
+      window.app.logActivity(`Target locked: ${target.class} (#${target.id}) [${pos}] [${reason}].`, "camera");
     }
 
     this.updateDashboardUI();
@@ -595,6 +709,9 @@ class UnifiedTargetTracker {
     this.primaryTargetId = null;
     this.lockStatus = 'not_locked';
     this.lostSince = null;
+    this.targetAbsentCycles = 0;
+    this.candidateDirection = null;
+    this.candidateDirectionCycles = 0;
     this.lastAnnouncedState = null;
 
     if (window.soundEngine) window.soundEngine.playToggle(false);
@@ -639,6 +756,9 @@ class UnifiedTargetTracker {
     this.primaryTargetId = null;
     this.lockStatus = 'not_locked';
     this.lostSince = null;
+    this.targetAbsentCycles = 0;
+    this.candidateDirection = null;
+    this.candidateDirectionCycles = 0;
     this.switchCandidateId = null;
     this.switchCandidateCycles = 0;
     this.lastAnnouncedState = null;
@@ -666,6 +786,7 @@ class UnifiedTargetTracker {
     if (this.lockStatus === 'locked' && this.primaryTarget) {
       const t = this.primaryTarget;
       const pos = t.spatial ? t.spatial.position : 'Centre';
+      const dirText = pos === 'Centre' ? 'CENTRE (AHEAD)' : pos.toUpperCase();
       const score = Math.round((t.score || 0) * 100);
 
       if (badgeEl) {
@@ -673,7 +794,7 @@ class UnifiedTargetTracker {
         badgeEl.className = "lock-status-badge locked";
       }
 
-      statusTextEl.textContent = `${t.class.toUpperCase()} #${t.id} (${pos})`;
+      statusTextEl.textContent = `${t.class.toUpperCase()} #${t.id} · ${dirText}`;
       statusTextEl.style.color = "var(--accent-cyan)";
 
       if (proximityEl) {

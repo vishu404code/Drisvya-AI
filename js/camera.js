@@ -690,7 +690,7 @@ class CameraController {
 
       let labelText = `${idPrefix}${obj.class.toUpperCase()} ${score}% · ${pos}`;
       if (isPrimary) {
-        labelText = `★ TARGET ${idPrefix}${obj.class.toUpperCase()} · ${proxState}`;
+        labelText = `★ TARGET ${idPrefix}${obj.class.toUpperCase()} · ${pos} · ${proxState}`;
       }
 
       this.ctx.font = isPrimary 
