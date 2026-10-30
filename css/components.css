@@ -756,7 +756,8 @@
   transition: all var(--transition-fast);
 }
 
-.status-dot.online {
+.status-dot.online,
+.status-dot.ready {
   background: var(--status-online);
   box-shadow: 0 0 8px var(--status-online);
 }
@@ -766,6 +767,12 @@
   box-shadow: 0 0 10px var(--accent-cyan);
 }
 
+.status-dot.waiting {
+  background: var(--accent-amber, #f59e0b);
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
+}
+
+.status-dot.muted,
 .status-dot.disabled {
   background: var(--text-muted);
   box-shadow: none;

@@ -76,6 +76,8 @@ global.SpeechSynthesisUtterance = class {
 global.speechSynthesis = {
   speaking: false,
   paused: false,
+  holdSpeech: false,
+  activeUtterance: null,
   getVoices: () => [
     { lang: 'en-US', name: 'Google US English' },
     { lang: 'en-IN', name: 'Google Indian English' },
@@ -84,13 +86,27 @@ global.speechSynthesis = {
   speak: (utterance) => {
     spokenUtterances.push(utterance);
     global.speechSynthesis.speaking = true;
+    global.speechSynthesis.activeUtterance = utterance;
+    speechCancelled = false;
     if (utterance.onstart) utterance.onstart();
-    global.speechSynthesis.speaking = false;
-    if (utterance.onend) utterance.onend();
+    if (!global.speechSynthesis.holdSpeech) {
+      global.speechSynthesis.speaking = false;
+      global.speechSynthesis.activeUtterance = null;
+      if (utterance.onend) utterance.onend();
+    }
+  },
+  finishCurrentSpeech: () => {
+    if (global.speechSynthesis.speaking && global.speechSynthesis.activeUtterance) {
+      const u = global.speechSynthesis.activeUtterance;
+      global.speechSynthesis.speaking = false;
+      global.speechSynthesis.activeUtterance = null;
+      if (u.onend) u.onend();
+    }
   },
   cancel: () => {
     speechCancelled = true;
     global.speechSynthesis.speaking = false;
+    global.speechSynthesis.activeUtterance = null;
   },
   resume: () => {
     global.speechSynthesis.paused = false;
@@ -1107,8 +1123,272 @@ require('./js/camera.js');
   assert.strictEqual(valEnvStatus.textContent, 'ACTIVE');
   console.log('  ✔ All 6 Dashboard Environment Awareness metrics verified');
 
+  // ====================================================================
+  // TEST 34: DETECT THREE OBJECTS SIMULTANEOUSLY (SECTION 11, CASE 1)
+  // ====================================================================
+  console.log('[TEST 34] Detect 3 Simultaneous Objects -> Exactly 1 Announcement Plays');
+  window.targetTracker.reset();
+  window.voiceAssistant.clearQueue(true);
+  spokenUtterances = [];
+  currentTime = 20000000;
+
+  const simultaneousObjects = [
+    { bbox: [100, 100, 120, 250], class: 'person', score: 0.95 },
+    { bbox: [450, 100, 200, 400], class: 'chair', score: 0.90 },
+    { bbox: [900, 150, 80, 180], class: 'bottle', score: 0.88 }
+  ];
+
+  window.targetTracker.update(simultaneousObjects, 1280, 720);
+
+  assert.strictEqual(spokenUtterances.length, 1, 'Exactly one announcement spoken for multiple simultaneous objects');
+  assert.strictEqual(window.voiceAssistant.speechQueue.length, 0, 'No extraneous speech queued');
+  console.log('  ✔ 3 simultaneous objects produced exactly 1 single-target announcement');
+
+  // ====================================================================
+  // TEST 35: WHILE SENTENCE IS PLAYING, DETECT ANOTHER OBJECT (SECTION 11, CASE 2)
+  // ====================================================================
+  console.log('[TEST 35] New Detection While Sentence Playing -> First Sentence Finishes Completely');
+  global.speechSynthesis.holdSpeech = true;
+  spokenUtterances = [];
+  speechCancelled = false;
+
+  // Start sentence 1
+  window.voiceAssistant.speak("A person is detected on your left.");
+  assert.strictEqual(window.voiceAssistant.isSpeaking, true, 'Speech must be active');
+  assert.strictEqual(window.voiceAssistant.voiceStatus, 'SPEAKING', 'Status must be SPEAKING');
+  assert.strictEqual(spokenUtterances.length, 1, 'Sentence 1 started');
+  assert.strictEqual(spokenUtterances[0].text, "A person is detected on your left.");
+
+  // Detect another object while sentence 1 is actively speaking
+  const chairObj = { id: 42, class: 'chair', spatial: { position: 'Right' } };
+  window.voiceAssistant.announceTargetEvent('target_acquired', chairObj);
+
+  // Assert Sentence 1 was NOT cancelled and Sentence 2 did NOT start speaking yet
+  assert.strictEqual(speechCancelled, false, 'Sentence 1 must never be cancelled when new detection arrives');
+  assert.strictEqual(spokenUtterances.length, 1, 'Sentence 2 must not play simultaneously while Sentence 1 speaks');
+  assert.strictEqual(window.voiceAssistant.voiceStatus, 'WAITING', 'Status must indicate WAITING when event is pending');
+  assert.strictEqual(window.voiceAssistant.speechQueue.length, 1, 'At most one pending announcement queued');
+
+  // Allow pending Sentence 2 to complete when it fires
+  global.speechSynthesis.holdSpeech = false;
+  global.speechSynthesis.finishCurrentSpeech();
+  await new Promise(r => setTimeout(r, 240));
+
+  // Assert Sentence 2 now played cleanly in order
+  assert.strictEqual(spokenUtterances.length, 2, 'Pending announcement played after first finished');
+  assert.strictEqual(spokenUtterances[1].text, "Chair detected on your right.");
+  assert.strictEqual(window.voiceAssistant.isSpeaking, false, 'Speech must be idle after Sentence 2 completes');
+  console.log('  ✔ First sentence finished completely before second announcement played in sequence');
+
+  // ====================================================================
+  // TEST 36: RAPID CAMERA MOVEMENT (SECTION 11, CASE 3)
+  // ====================================================================
+  console.log('[TEST 36] Rapid Camera Movement -> Single Pending Slot Prevents Chaotic Stacking');
+  global.speechSynthesis.holdSpeech = true;
+  spokenUtterances = [];
+  speechCancelled = false;
+
+  window.voiceAssistant.speak("Initial steady observation.");
+  assert.strictEqual(window.voiceAssistant.isSpeaking, true);
+
+  // Rapid panning over 10 consecutive frames
+  const panObjects = ['bottle', 'laptop', 'dog', 'tv', 'cup', 'car', 'chair', 'person', 'table', 'backpack'];
+  for (let i = 0; i < panObjects.length; i++) {
+    currentTime += 50;
+    window.voiceAssistant.announceTargetEvent('target_acquired', { id: 100 + i, class: panObjects[i], spatial: { position: 'Left' } });
+    assert(window.voiceAssistant.speechQueue.length <= 1, 'Queue must never accumulate multiple backlogged announcements');
+  }
+
+  assert.strictEqual(spokenUtterances.length, 1, 'No chaotic overlapping speech during camera panning');
+
+  global.speechSynthesis.holdSpeech = false;
+  global.speechSynthesis.finishCurrentSpeech();
+  await new Promise(r => setTimeout(r, 240));
+
+  assert.strictEqual(spokenUtterances.length, 2, 'Only latest candidate played after sentence completion');
+  assert.strictEqual(window.voiceAssistant.isSpeaking, false);
+  console.log('  ✔ Rapid camera movement maintained single controlled pending slot with zero audio chaos');
+
+  // ====================================================================
+  // TEST 37: STATIONARY OBJECT (SECTION 11, CASE 4)
+  // ====================================================================
+  console.log('[TEST 37] Stationary Target in View -> Zero Repeated Announcements');
+  window.targetTracker.reset();
+  spokenUtterances = [];
+  currentTime = 25000000;
+
+  const staticTarget = [{ bbox: [400, 150, 100, 200], class: 'person', score: 0.92 }];
+  window.targetTracker.update(staticTarget, 1280, 720);
+  assert.strictEqual(spokenUtterances.length, 1);
+  const baselineCount = spokenUtterances.length;
+
+  for (let i = 0; i < 20; i++) {
+    currentTime += 150;
+    window.targetTracker.update(staticTarget, 1280, 720);
+  }
+
+  assert.strictEqual(spokenUtterances.length, baselineCount, 'Stationary target must produce zero duplicate announcements');
+  console.log('  ✔ Stationary object remained completely silent across 20 consecutive frames');
+
+  // ====================================================================
+  // TEST 38: TARGET CHANGE DURING SPEECH (SECTION 11, CASE 5)
+  // ====================================================================
+  console.log('[TEST 38] Target Switch During Speech -> Current Sentence Completes Before Target Switch');
+  window.targetTracker.reset();
+  window.voiceAssistant.clearQueue(true);
+  spokenUtterances = [];
+  currentTime = 30000000;
+
+  // Lock Person A
+  global.speechSynthesis.holdSpeech = true;
+  window.targetTracker.update([{ bbox: [400, 150, 100, 200], class: 'person', score: 0.92 }], 1280, 720);
+  assert.strictEqual(window.voiceAssistant.isSpeaking, true);
+  assert.strictEqual(spokenUtterances.length, 1);
+
+  // Closer Chair enters and sustains for confirmation cycles
+  for (let i = 0; i < 4; i++) {
+    currentTime += 100;
+    window.targetTracker.update([
+      { bbox: [400, 150, 100, 200], class: 'person', score: 0.88 },
+      { bbox: [200, 50, 300, 500], class: 'chair', score: 0.96 }
+    ], 1280, 720);
+  }
+
+  assert.strictEqual(speechCancelled, false, 'Active speech must not be interrupted by target switch');
+  assert.strictEqual(spokenUtterances.length, 1, 'New target announcement must wait');
+
+  global.speechSynthesis.holdSpeech = false;
+  global.speechSynthesis.finishCurrentSpeech();
+  await new Promise(r => setTimeout(r, 240));
+
+  assert.strictEqual(spokenUtterances.length, 2, 'Target switch announcement played after sentence 1 finished');
+  assert(spokenUtterances[1].text.includes('Chair') || spokenUtterances[1].text.includes('chair'));
+  assert.strictEqual(window.voiceAssistant.isSpeaking, false);
+  console.log('  ✔ Target switched cleanly after current sentence completed');
+
+  // ====================================================================
+  // TEST 39: TARGET DISAPPEARS & GRACE PERIOD (SECTION 11, CASE 6)
+  // ====================================================================
+  console.log('[TEST 39] Target Disappearance -> Held in Grace Period, Released Cleanly');
+  window.targetTracker.reset();
+  spokenUtterances = [];
+  currentTime = 35000000;
+
+  window.targetTracker.update([{ bbox: [400, 150, 100, 200], class: 'person', score: 0.92 }], 1280, 720);
+  assert.strictEqual(window.targetTracker.lockStatus, 'locked');
+
+  // Target vanishes at t + 1000 (well within 2.5s grace period)
+  currentTime += 1000;
+  window.targetTracker.update([], 1280, 720);
+  assert.strictEqual(window.targetTracker.lockStatus, 'temporarily_lost', 'Must enter temporarily_lost state');
+  assert(window.targetTracker.primaryTarget !== null, 'Target must not be discarded prematurely');
+
+  // Advance past 2.5s recovery grace period (3000ms > 2500ms)
+  currentTime += 3000;
+  window.targetTracker.update([], 1280, 720);
+  assert.strictEqual(window.targetTracker.lockStatus, 'not_locked', 'Must release target after grace period');
+  assert.strictEqual(window.targetTracker.primaryTarget, null);
+  console.log('  ✔ Target held through 2.5s grace period and released cleanly without audio glitch');
+
+  // ====================================================================
+  // TEST 40: DISABLE VOICE DURING PLAYBACK (SECTION 11, CASE 7)
+  // ====================================================================
+  console.log('[TEST 40] Disable Voice During Playback -> Speech Stops Immediately & Queue Clears');
+  global.speechSynthesis.holdSpeech = true;
+  spokenUtterances = [];
+  speechCancelled = false;
+
+  window.voiceAssistant.speak("A long speech announcement actively playing.");
+  assert.strictEqual(window.voiceAssistant.isSpeaking, true);
+
+  // Turn voice OFF during active playback
+  window.voiceAssistant.setAnnouncementsEnabled(false);
+
+  assert.strictEqual(speechCancelled, true, 'Speech must be cancelled immediately when disabled');
+  assert.strictEqual(window.voiceAssistant.isSpeaking, false, 'isSpeaking must be reset to false');
+  assert.strictEqual(window.voiceAssistant.speechQueue.length, 0, 'Queue must be purged');
+  assert.strictEqual(window.voiceAssistant.pendingNextEvent, null, 'Pending events must be cleared');
+  assert.strictEqual(window.voiceAssistant.voiceStatus, 'MUTED', 'Status must show MUTED');
+  global.speechSynthesis.holdSpeech = false;
+  console.log('  ✔ Voice announcements OFF stopped audio instantly and completely purged queue');
+
+  // ====================================================================
+  // TEST 41: RE-ENABLE VOICE (SECTION 11, CASE 8)
+  // ====================================================================
+  console.log('[TEST 41] Re-enable Voice -> Old Announcements Do Not Replay');
+  spokenUtterances = [];
+
+  window.voiceAssistant.setAnnouncementsEnabled(true);
+  assert.strictEqual(window.voiceAssistant.voiceStatus, 'READY', 'Status must become READY');
+  assert.strictEqual(spokenUtterances.length, 0, 'Must never replay old announcements from before voice was enabled');
+  assert.strictEqual(window.voiceAssistant.pendingNextEvent, null);
+  console.log('  ✔ Re-enabling voice returned to READY without replaying stale announcements');
+
+  // ====================================================================
+  // TEST 42: ENGLISH & HINDI COMPLETE SENTENCES (SECTION 11, CASE 9)
+  // ====================================================================
+  console.log('[TEST 42] English & Hindi Complete Sentence Generation');
+  spokenUtterances = [];
+
+  // English complete sentences
+  window.voiceAssistant.setLanguage('en');
+  window.voiceAssistant.announceTargetEvent('target_acquired', { id: 1, class: 'person', spatial: { position: 'Left' } });
+  assert.strictEqual(spokenUtterances[spokenUtterances.length - 1].text, "Person detected on your left.");
+
+  currentTime += 3000;
+  window.voiceAssistant.lastAnnouncementTime = 0;
+  window.voiceAssistant.announceEnvironmentEvent('wall_initial', 'wall_surface');
+  assert.strictEqual(spokenUtterances[spokenUtterances.length - 1].text, "A large wall-like surface is detected ahead.");
+
+  // Hindi complete sentences
+  window.voiceAssistant.setLanguage('hi');
+  currentTime += 3000;
+  window.voiceAssistant.lastAnnouncementTime = 0;
+  window.voiceAssistant.announceTargetEvent('target_acquired', { id: 2, class: 'person', spatial: { position: 'Left' } });
+  assert.strictEqual(spokenUtterances[spokenUtterances.length - 1].text, "व्यक्ति आपकी बाईं ओर दिखाई दिया।");
+
+  currentTime += 3000;
+  window.voiceAssistant.lastAnnouncementTime = 0;
+  window.voiceAssistant.announceEnvironmentEvent('wall_initial', 'wall_surface');
+  assert.strictEqual(spokenUtterances[spokenUtterances.length - 1].text, "सामने एक बड़ी दीवार जैसी सतह दिखाई दी।");
+
+  window.voiceAssistant.setLanguage('en');
+  console.log('  ✔ All English and Hindi sentences generated as complete, natural phrasing');
+
+  // ====================================================================
+  // TEST 43: INTEGRATED MULTI-SUBSYSTEM ZERO-COLLISION STRESS TEST (SECTION 11, CASE 10)
+  // ====================================================================
+  console.log('[TEST 43] Multi-Subsystem Integration (Object, Direction, Proximity, Wall)');
+  spokenUtterances = [];
+  global.speechSynthesis.holdSpeech = true;
+  currentTime = 45000000;
+
+  // Event 1: Initial target
+  window.voiceAssistant.announceTargetEvent('target_acquired', { id: 5, class: 'person', spatial: { position: 'Left' } });
+  assert.strictEqual(window.voiceAssistant.isSpeaking, true);
+  assert.strictEqual(spokenUtterances.length, 1);
+
+  // Rapid barrage from multiple subsystems while speaking
+  window.voiceAssistant.announceEnvironmentEvent('wall_dynamic', 'wall_closer');
+  window.voiceAssistant.announceTargetEvent('approaching', { id: 5, class: 'person', spatial: { position: 'Left' } });
+  window.voiceAssistant.announceEnvironmentEvent('centre_view', 'centre_caution');
+
+  // Assert no collision, no cancellation
+  assert.strictEqual(spokenUtterances.length, 1, 'No concurrent speech during multi-subsystem barrage');
+  assert.strictEqual(speechCancelled, false, 'No utterance aborted mid-sentence');
+
+  // Finish first sentence and allow second sentence to complete
+  global.speechSynthesis.holdSpeech = false;
+  global.speechSynthesis.finishCurrentSpeech();
+  await new Promise(r => setTimeout(r, 240));
+
+  // Second sentence played
+  assert.strictEqual(spokenUtterances.length, 2, 'Pending event delivered cleanly');
+  assert.strictEqual(window.voiceAssistant.isSpeaking, false);
+  console.log('  ✔ Object, direction, proximity, and wall awareness operated with strict zero-collision guarantee');
+
   console.log('\n================================================================');
-  console.log('🎉 ALL 33 AUDIT TESTS PASSED WITH 0 ERRORS');
+  console.log('🎉 ALL 43 AUDIT TESTS (INCLUDING ALL 10 SECTION 11 SUITES) PASSED WITH 0 ERRORS');
   console.log('================================================================');
 })().catch(err => {
   console.error('TEST FAILED:', err);

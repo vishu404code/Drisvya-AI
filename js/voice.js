@@ -1,13 +1,14 @@
 /**
  * DRISVYA - Central Intelligent Speech Manager
  * Unified audio output and speech synthesis engine for Android and web.
- * Features:
- * - Single-queue speech execution (zero audio collisions / speech overlap)
- * - Intelligent target event narration with English and Hindi support
- * - Urgent preemption (close obstacles & target switching can preempt non-urgent speech)
- * - State-change gating & deduplication (no repetitive spam on unchanged states)
- * - Strict cancellation on announcements OFF or camera stop
- * - Full audio route, volume, speech rate, and Test Voice support
+ *
+ * Strict Single-Speaker Architecture:
+ * 1. Strict One-Announcement-at-a-Time Rule: Never starts a second announcement while current is speaking.
+ * 2. Sentences finish completely before evaluating any pending announcement.
+ * 3. Never calls speechSynthesis.cancel() on detection or obstacle changes (only on Mute/Disable/Stop).
+ * 4. Controlled queue (max 1 pending slot) deduplicates and discards outdated target states.
+ * 5. Dashboard Voice Status indicator: SPEAKING, WAITING, READY, MUTED.
+ * 6. Natural complete sentences in English and Hindi.
  */
 
 const COCO_CLASS_DICTIONARY = {
@@ -49,19 +50,27 @@ class VoiceAssistant {
     this.currentLanguage = (typeof localStorage !== 'undefined' && localStorage.getItem('drisvya_lang')) || 'en';
     this.isMuted = false;
     this.isAnnouncementsEnabled = (typeof localStorage !== 'undefined' ? localStorage.getItem('drisvya_announcements') !== 'false' : true);
+    this.speechEnabled = this.isAnnouncementsEnabled;
     this.speechRate = (typeof localStorage !== 'undefined' && parseFloat(localStorage.getItem('drisvya_speed'))) || 1.0;
     this.speechPitch = 1.0;
     this.speechVolume = (typeof localStorage !== 'undefined' && parseFloat(localStorage.getItem('drisvya_volume'))) || 1.0;
 
-    // Single Central Speech State
+    // Strict Central Speech Manager State Machine (Requirement 2)
     this.isSpeaking = false;
-    this.isUrgentSpeaking = false;
+    this.currentAnnouncement = null;
+    this.speechQueue = [];
+    this.lastSpokenAnnouncement = null;
+    this.currentTargetId = null;
+
     this.activeUtterance = null;
+    this.watchdogTimer = null;
     this.isAudioUnlocked = false;
 
+    // Controlled single-item pending slot (Requirement 8)
+    this.pendingNextEvent = null;
+    this.pendingAnnouncement = null; // compatibility mirror
     this.lastAnnouncementTime = 0;
-    this.globalAnnouncementCooldown = 2400; // 2.4s minimum gap between non-urgent speech
-    this.pendingAnnouncement = null;
+    this.globalAnnouncementCooldown = 2200; // minimum cooldown between identical automatic events
 
     this.lastAnnouncement = {
       en: "DRISVYA assistive vision platform is ready in standby. Tap Start Assistance to begin.",
@@ -70,13 +79,14 @@ class VoiceAssistant {
 
     this.audioRoute = 'System Audio Output';
     this.availableVoices = [];
+    this.voiceStatus = 'READY';
     this.init();
   }
 
   init() {
     if (!this.synth) {
       console.warn('[DRISVYA Voice] SpeechSynthesis is not supported on this browser.');
-      this.updateStatusUI('Disabled');
+      this.updateStatusUI('MUTED');
       return;
     }
 
@@ -86,7 +96,7 @@ class VoiceAssistant {
     }
 
     this.checkAudioOutputDevices();
-    this.updateStatusUI(this.isAnnouncementsEnabled && !this.isMuted ? 'Waiting' : 'Disabled');
+    this.updateStatusUI(this.speechEnabled && !this.isMuted ? 'READY' : 'MUTED');
   }
 
   unlockAudio() {
@@ -184,7 +194,7 @@ class VoiceAssistant {
       const feedback = lang === 'en' 
         ? "Language set to English." 
         : "भाषा हिन्दी में सेट कर दी गई है।";
-      this.speak(feedback, { force: true, priority: 'urgent' });
+      this.speak(feedback, { force: true });
       return true;
     }
     return false;
@@ -192,14 +202,12 @@ class VoiceAssistant {
 
   setMute(mute) {
     this.isMuted = !!mute;
-    if (this.isMuted && this.synth) {
-      this.clearQueue();
-      this.synth.cancel();
-      this.stopVisualizer();
-      this.isUrgentSpeaking = false;
-      this.isSpeaking = false;
+    if (this.isMuted) {
+      this.clearQueue(true);
+      this.updateStatusUI('MUTED');
+    } else {
+      this.updateStatusUI(this.speechEnabled ? 'READY' : 'MUTED');
     }
-    this.updateStatusUI(this.isMuted || !this.isAnnouncementsEnabled ? 'Disabled' : 'Waiting');
   }
 
   toggleMute() {
@@ -209,29 +217,26 @@ class VoiceAssistant {
 
   setAnnouncementsEnabled(enabled) {
     this.isAnnouncementsEnabled = !!enabled;
+    this.speechEnabled = this.isAnnouncementsEnabled;
     try {
-      localStorage.setItem('drisvya_announcements', this.isAnnouncementsEnabled ? 'true' : 'false');
+      localStorage.setItem('drisvya_announcements', this.speechEnabled ? 'true' : 'false');
     } catch (e) {}
 
-    if (!this.isAnnouncementsEnabled) {
-      this.clearQueue();
-      if (this.synth) this.synth.cancel();
-      this.stopVisualizer();
-      this.isSpeaking = false;
-      this.isUrgentSpeaking = false;
-      this.updateStatusUI('Disabled');
+    if (!this.speechEnabled) {
+      this.clearQueue(true); // Cancels speech and purges queue
+      this.updateStatusUI('MUTED');
     } else {
-      this.updateStatusUI(this.isMuted ? 'Disabled' : 'Waiting');
+      this.updateStatusUI(this.isMuted ? 'MUTED' : 'READY');
     }
 
     const toggleEl = document.getElementById('toggleObjectAnnouncements');
-    if (toggleEl && toggleEl.checked !== this.isAnnouncementsEnabled) {
-      toggleEl.checked = this.isAnnouncementsEnabled;
+    if (toggleEl && toggleEl.checked !== this.speechEnabled) {
+      toggleEl.checked = this.speechEnabled;
     }
 
-    if (window.a11yManager && window.a11yManager.preferences.voiceAlerts !== this.isAnnouncementsEnabled) {
-      window.a11yManager.preferences.voiceAlerts = this.isAnnouncementsEnabled;
-      window.a11yManager.updateToggleUI('toggleVoiceAlerts', this.isAnnouncementsEnabled);
+    if (window.a11yManager && window.a11yManager.preferences.voiceAlerts !== this.speechEnabled) {
+      window.a11yManager.preferences.voiceAlerts = this.speechEnabled;
+      window.a11yManager.updateToggleUI('toggleVoiceAlerts', this.speechEnabled);
       window.a11yManager.savePreferences();
     }
   }
@@ -263,9 +268,6 @@ class VoiceAssistant {
     return key.charAt(0).toUpperCase() + key.slice(1).replace('_', ' ');
   }
 
-  /**
-   * Helper to retrieve direction phrasing in English and Hindi
-   */
   getDirectionPhrase(direction, lang, mode = 'inline') {
     const isHi = lang === 'hi';
     const dir = (direction || 'Centre').toLowerCase();
@@ -286,7 +288,10 @@ class VoiceAssistant {
    * All speech notifications pass through this single centralized method.
    */
   announceTargetEvent(eventType, target, extra = {}) {
-    if (!this.isAnnouncementsEnabled || this.isMuted) return;
+    if (!this.speechEnabled || this.isMuted) return;
+
+    const targetId = target ? target.id : null;
+    this.currentTargetId = targetId;
 
     const rawClass = (target && target.class) || 'object';
     const isHi = this.currentLanguage === 'hi';
@@ -401,13 +406,6 @@ class VoiceAssistant {
           : `${name} left the camera view.`;
         break;
 
-      case 'uncertain':
-        text = isHi
-          ? `लक्ष्य ट्रैकिंग अनिश्चित है।`
-          : `Target tracking uncertain.`;
-        priority = 'normal';
-        break;
-
       case 'target_lost':
         priority = 'urgent';
         text = isHi
@@ -417,9 +415,7 @@ class VoiceAssistant {
 
       case 'unlocked':
         priority = 'primary';
-        text = isHi
-          ? `लक्ष्य अनलॉक हो गया है।`
-          : `Target unlocked.`;
+        text = isHi ? `लक्ष्य अनलॉक हो गया है।` : `Target unlocked.`;
         break;
 
       default:
@@ -428,17 +424,15 @@ class VoiceAssistant {
 
     if (!text) return;
 
+    // Normal priority events respect minimum cooldown from any announcement
     const now = Date.now();
-    // Normal priority events respect cooldown
     if (priority === 'normal') {
       if (now - this.lastAnnouncementTime < this.globalAnnouncementCooldown) {
         return;
       }
     }
 
-    this.lastAnnouncementTime = now;
-    this.pendingAnnouncement = null;
-    this.speak(text, { priority });
+    this.speak(text, { targetId, type: 'target', eventType, priority });
 
     if (window.app) {
       window.app.logActivity(text, "voice");
@@ -447,10 +441,10 @@ class VoiceAssistant {
 
   /**
    * Environment & Wall Awareness Voice Event Announcer
-   * Centralized method ensuring zero collisions and proper prioritization.
+   * Centralized method ensuring zero collisions and complete sentence delivery.
    */
   announceEnvironmentEvent(eventType, subType, details = {}) {
-    if (!this.isAnnouncementsEnabled || this.isMuted) return;
+    if (!this.speechEnabled || this.isMuted) return;
 
     const isHi = this.currentLanguage === 'hi';
     let text = '';
@@ -465,6 +459,8 @@ class VoiceAssistant {
           text = isHi ? "दीवार अपेक्षाकृत दूर दिखाई दे रही है।" : "Wall appears relatively far away.";
         } else if (subType === 'wall_uncertain') {
           text = isHi ? "दीवार की दूरी का विश्वसनीय अनुमान लगाने में असमर्थ।" : "Unable to estimate wall proximity reliably.";
+        } else if (subType === 'wall_surface') {
+          text = isHi ? "सामने एक बड़ी दीवार जैसी सतह दिखाई दी।" : "A large wall-like surface is detected ahead.";
         } else {
           text = isHi ? "सामने दीवार दिखाई दी।" : "Wall detected in front.";
         }
@@ -529,9 +525,7 @@ class VoiceAssistant {
       }
     }
 
-    this.lastAnnouncementTime = now;
-    this.pendingAnnouncement = null;
-    this.speak(text, { priority });
+    this.speak(text, { type: 'environment', priority });
 
     if (window.app) {
       window.app.logActivity(text, "voice");
@@ -543,7 +537,7 @@ class VoiceAssistant {
    */
   announcePrimaryPerson(stateKey, customText) {
     if (customText) {
-      this.speak(customText, { priority: 'primary' });
+      this.speak(customText);
       return;
     }
     const mapping = {
@@ -559,36 +553,78 @@ class VoiceAssistant {
   }
 
   /**
-   * Central speech execution with preemption & non-overlapping guarantees
+   * Central speech dispatcher: Strict One-Announcement-at-a-Time Rule
+   * - Never starts a second announcement while current announcement is speaking.
+   * - Never interrupts a sentence halfway through.
+   * - Saves latest relevant pending event to evaluate upon onend.
    */
   speak(text, options = {}) {
-    if (!this.synth) return;
+    if (!this.synth) return false;
     this.unlockAudio();
 
-    const priority = options.priority || 'normal';
+    const isForce = !!options.force;
+    if (!this.speechEnabled && !isForce) return false;
+    if (this.isMuted && !isForce) return false;
+    if (!text || typeof text !== 'string') return false;
 
-    if (!this.isAnnouncementsEnabled && !options.force) {
-      return;
-    }
-    if (this.isMuted && !options.force) {
-      return;
-    }
+    const trimmed = text.trim();
+    if (!trimmed) return false;
 
-    // Preemption handling
-    if ((priority === 'urgent' || priority === 'primary') && this.synth.speaking) {
-      if (!this.isUrgentSpeaking) {
-        this.synth.cancel();
-        this.isSpeaking = false;
-        this.isUrgentSpeaking = false;
-      } else {
-        return; // Already speaking an urgent alert; do not collide
+    // RULE 1: STRICT ONE-ANNOUNCEMENT-AT-A-TIME
+    // Never start a second announcement while current announcement is speaking.
+    // Never interrupt a sentence halfway through to announce another object.
+    if (this.isSpeaking) {
+      // Deduplicate: If incoming announcement is identical to what is currently speaking, ignore
+      if (this.currentAnnouncement === trimmed) {
+        return false;
       }
-    } else if (this.isSpeaking || this.synth.speaking) {
-      return; // Non-urgent never interrupts
+
+      // Store as the single latest relevant pending event (controlled queue of max length 1)
+      const pendingItem = {
+        text: trimmed,
+        options: { ...options },
+        timestamp: Date.now(),
+        targetId: options.targetId !== undefined ? options.targetId : this.currentTargetId,
+        type: options.type || 'general'
+      };
+
+      this.pendingNextEvent = pendingItem;
+      this.pendingAnnouncement = pendingItem; // backward compat mirror
+      this.speechQueue = [pendingItem];
+      this.updateStatusUI('WAITING');
+      return true;
     }
 
-    this.announceToScreenReader(text);
+    // Deduplicate identical consecutive announcements (unless force is requested)
+    const now = Date.now();
+    if (!isForce && trimmed === this.lastSpokenAnnouncement && (now - this.lastAnnouncementTime < 2500)) {
+      return false;
+    }
+
+    this._executeSpeak(trimmed, options);
+    return true;
+  }
+
+  /**
+   * Internal Speech Synthesis Invocation
+   */
+  _executeSpeak(text, options = {}) {
+    if (this.watchdogTimer) {
+      clearTimeout(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
+
+    this.isSpeaking = true;
+    this.currentAnnouncement = text;
+    this.speechQueue = [];
+    this.pendingNextEvent = null;
+    this.pendingAnnouncement = null;
+    this.lastAnnouncementTime = Date.now();
     this.lastAnnouncement[this.currentLanguage] = text;
+
+    this.updateStatusUI('SPEAKING');
+    this.startVisualizer();
+    this.announceToScreenReader(text);
 
     const utterance = new SpeechSynthesisUtterance(text);
     this.activeUtterance = utterance;
@@ -604,40 +640,100 @@ class VoiceAssistant {
       utterance.voice = voice;
     }
 
-    if (priority === 'urgent') {
-      this.isUrgentSpeaking = true;
-    }
+    let finished = false;
+    const finishUtterance = () => {
+      if (finished) return;
+      finished = true;
 
-    utterance.onstart = () => {
-      this.isSpeaking = true;
-      this.startVisualizer();
-      this.updateStatusUI('Speaking');
-    };
+      if (this.watchdogTimer) {
+        clearTimeout(this.watchdogTimer);
+        this.watchdogTimer = null;
+      }
 
-    const handleSpeechEnd = () => {
       this.isSpeaking = false;
-      this.isUrgentSpeaking = false;
+      this.lastSpokenAnnouncement = text;
+      this.currentAnnouncement = null;
       this.activeUtterance = null;
       this.stopVisualizer();
 
-      if (this.pendingAnnouncement && this.isAnnouncementsEnabled && !this.isMuted) {
-        const pending = this.pendingAnnouncement;
+      // Check if voice was disabled or muted while sentence was playing
+      if (!this.speechEnabled || this.isMuted) {
+        this.pendingNextEvent = null;
         this.pendingAnnouncement = null;
-        const now = Date.now();
-        if (now - pending.timestamp < 3000) {
-          this.speak(pending.text, { priority: pending.priority || 'normal' });
+        this.speechQueue = [];
+        this.updateStatusUI('MUTED');
+        return;
+      }
+
+      // RULE 3 & 8: Only after onend, evaluate the next announcement.
+      const pending = this.pendingNextEvent;
+      if (pending) {
+        this.pendingNextEvent = null;
+        this.pendingAnnouncement = null;
+        this.speechQueue = [];
+
+        let isValid = true;
+
+        // Discard stale target position/proximity announcements if target is no longer locked
+        const evt = (pending.options && pending.options.eventType) || '';
+        const isPosOrProximity = (evt === 'approaching' || evt === 'close' || evt === 'moving_away' || evt === 'far' || evt === 'direction_changed');
+        if (isPosOrProximity && pending.targetId && window.targetTracker) {
+          const currentTarget = window.targetTracker.primaryTarget;
+          if (!currentTarget || currentTarget.id !== pending.targetId) {
+            isValid = false; // Target changed or disappeared during playback
+          }
+        }
+
+        // Discard stale pending announcements (> 4.0s old)
+        if (Date.now() - pending.timestamp > 4000) {
+          isValid = false;
+        }
+
+        // Discard identical repetition of what just finished speaking
+        if (pending.text === this.lastSpokenAnnouncement) {
+          isValid = false;
+        }
+
+        if (isValid) {
+          this.updateStatusUI('WAITING');
+          // Brief conversational cadence between sentences (180ms)
+          setTimeout(() => {
+            if (this.speechEnabled && !this.isMuted) {
+              this._executeSpeak(pending.text, pending.options);
+            } else {
+              this.updateStatusUI('MUTED');
+            }
+          }, 180);
           return;
         }
       }
 
-      this.updateStatusUI(this.isAnnouncementsEnabled && !this.isMuted ? 'Waiting' : 'Disabled');
+      // Voice manager is idle and ready
+      this.updateStatusUI('READY');
     };
 
-    utterance.onend = handleSpeechEnd;
-    utterance.onerror = (e) => {
-      console.warn('[DRISVYA Voice] Speech error:', e);
-      handleSpeechEnd();
+    utterance.onstart = () => {
+      this.isSpeaking = true;
+      this.updateStatusUI('SPEAKING');
     };
+
+    utterance.onend = () => {
+      finishUtterance();
+    };
+
+    utterance.onerror = (e) => {
+      console.warn('[DRISVYA Voice] Speech utterance error:', e);
+      finishUtterance();
+    };
+
+    // Android Chrome speech watchdog timer: recovers state if speech engine stalls or drops onend
+    const safetyMs = Math.max(6000, text.length * 160);
+    this.watchdogTimer = setTimeout(() => {
+      if (this.isSpeaking && this.activeUtterance === utterance) {
+        console.warn('[DRISVYA Voice] Speech watchdog timeout triggered. Recovering.');
+        finishUtterance();
+      }
+    }, safetyMs);
 
     try {
       if (this.synth.paused) {
@@ -645,20 +741,47 @@ class VoiceAssistant {
       }
       this.synth.speak(utterance);
     } catch (err) {
-      console.error('[DRISVYA Voice] Speech call failed:', err);
-      handleSpeechEnd();
+      console.error('[DRISVYA Voice] Speech execution failed:', err);
+      finishUtterance();
     }
   }
 
-  clearQueue() {
-    this.pendingAnnouncement = null;
-    if (this.synth) {
-      this.synth.cancel();
+  /**
+   * Clear active speech and pending queue (Strictly on Mute, Disable, or Camera Stop)
+   */
+  clearQueue(cancelActive = true) {
+    if (this.watchdogTimer) {
+      clearTimeout(this.watchdogTimer);
+      this.watchdogTimer = null;
     }
+
+    this.pendingNextEvent = null;
+    this.pendingAnnouncement = null;
+    this.speechQueue = [];
+
+    if (cancelActive && this.synth) {
+      try {
+        this.synth.cancel();
+      } catch (e) {}
+    }
+
     this.isSpeaking = false;
-    this.isUrgentSpeaking = false;
+    this.currentAnnouncement = null;
+    this.activeUtterance = null;
     this.stopVisualizer();
-    this.updateStatusUI(this.isAnnouncementsEnabled && !this.isMuted ? 'Waiting' : 'Disabled');
+
+    const status = (!this.speechEnabled || this.isMuted) ? 'MUTED' : 'READY';
+    this.updateStatusUI(status);
+  }
+
+  /**
+   * Camera Stop hook: safely cleans all pending state and silences output
+   */
+  onCameraStop() {
+    this.clearQueue(true);
+    this.currentTargetId = null;
+    const status = (!this.speechEnabled || this.isMuted) ? 'MUTED' : 'READY';
+    this.updateStatusUI(status);
   }
 
   testVoice() {
@@ -668,7 +791,7 @@ class VoiceAssistant {
       ? "दृश्या वॉइस टेस्ट। आवाज़ और ऑडियो आउटपुट सही तरीके से काम कर रहे हैं।"
       : "DRISVYA voice announcement test. Speech synthesis and audio output are working.";
 
-    this.speak(testText, { force: true, priority: 'urgent' });
+    this.speak(testText, { force: true });
 
     if (window.soundEngine) {
       window.soundEngine.playStart();
@@ -683,15 +806,15 @@ class VoiceAssistant {
 
   repeatLast() {
     this.unlockAudio();
-    const textToRepeat = this.lastAnnouncement[this.currentLanguage];
+    const textToRepeat = this.lastSpokenAnnouncement || this.lastAnnouncement[this.currentLanguage];
     if (textToRepeat) {
-      this.speak(textToRepeat, { force: true, priority: 'urgent' });
+      this.speak(textToRepeat, { force: true });
       return textToRepeat;
     } else {
       const fallback = this.currentLanguage === 'en' 
         ? "DRISVYA assistance is in standby. Tap Start Assistance to begin." 
         : "दृश्या सहायता स्टैंडबाय पर है। शुरू करने के लिए स्टार्ट सहायता दबाएं।";
-      this.speak(fallback, { force: true, priority: 'urgent' });
+      this.speak(fallback, { force: true });
       return fallback;
     }
   }
@@ -706,23 +829,47 @@ class VoiceAssistant {
     if (visualizer) visualizer.classList.remove('speaking');
   }
 
+  /**
+   * Dashboard Status Indicator (Requirement 10)
+   * Displays: SPEAKING, WAITING, READY, MUTED
+   */
   updateStatusUI(statusText) {
+    let normalized = 'READY';
+    const s = (statusText || '').toUpperCase();
+    if (s.includes('SPEAK')) {
+      normalized = 'SPEAKING';
+    } else if (s.includes('WAIT')) {
+      normalized = 'WAITING';
+    } else if (s.includes('MUTE') || s.includes('DISABLE')) {
+      normalized = 'MUTED';
+    } else {
+      normalized = 'READY';
+    }
+
+    this.voiceStatus = normalized;
+
     const statusEl = document.getElementById('voiceAssistantStatusText');
     const badgeEl = document.getElementById('voiceStatusBadge');
 
-    if (statusEl) statusEl.textContent = statusText;
+    if (statusEl) {
+      statusEl.textContent = normalized;
+    }
     if (badgeEl) {
       badgeEl.className = 'status-dot';
-      if (statusText === 'Speaking') {
+      if (normalized === 'SPEAKING') {
         badgeEl.classList.add('speaking');
         badgeEl.style.background = 'var(--accent-cyan)';
         badgeEl.style.boxShadow = '0 0 10px var(--accent-cyan)';
-      } else if (statusText === 'Waiting') {
-        badgeEl.classList.add('online');
+      } else if (normalized === 'WAITING') {
+        badgeEl.classList.add('waiting');
+        badgeEl.style.background = 'var(--accent-amber, #f59e0b)';
+        badgeEl.style.boxShadow = '0 0 8px var(--accent-amber, #f59e0b)';
+      } else if (normalized === 'READY') {
+        badgeEl.classList.add('ready', 'online');
         badgeEl.style.background = 'var(--status-online)';
         badgeEl.style.boxShadow = '0 0 8px var(--status-online)';
-      } else if (statusText === 'Disabled') {
-        badgeEl.classList.add('disabled');
+      } else if (normalized === 'MUTED') {
+        badgeEl.classList.add('muted', 'disabled');
         badgeEl.style.background = 'var(--status-standby)';
         badgeEl.style.boxShadow = 'none';
       }

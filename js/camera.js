@@ -376,10 +376,7 @@ class CameraController {
   async stopAssistance() {
     // Clear voice announcement queue & tracking on camera stop
     if (window.voiceAssistant) {
-      window.voiceAssistant.clearQueue();
-      if (window.voiceAssistant.synth) {
-        window.voiceAssistant.synth.cancel();
-      }
+      window.voiceAssistant.onCameraStop();
     }
 
     if (window.primaryPersonTracker) {
@@ -434,10 +431,7 @@ class CameraController {
 
     // Clear voice announcement queue & tracking on camera stop
     if (window.voiceAssistant) {
-      window.voiceAssistant.clearQueue();
-      if (window.voiceAssistant.synth) {
-        window.voiceAssistant.synth.cancel();
-      }
+      window.voiceAssistant.onCameraStop();
     }
 
     if (window.primaryPersonTracker) {
