@@ -73,10 +73,30 @@ body.high-contrast-mode .permission-instructions-card,
 body.high-contrast-mode .camera-select-row,
 body.high-contrast-mode .lens-status-note,
 body.high-contrast-mode .audio-route-pill,
+body.high-contrast-mode .voice-toggle-row,
+body.high-contrast-mode .volume-slider-wrap,
 body.high-contrast-mode .modal-sheet {
   border: 2px solid #ffffff !important;
   background: #000000 !important;
   color: #ffffff !important;
+}
+
+body.high-contrast-mode .slider-switch-track {
+  border: 1.5px solid #ffffff !important;
+  background: #000000 !important;
+}
+
+body.high-contrast-mode .switch-control-wrap input:checked + .slider-switch-track {
+  background: #ffff00 !important;
+  border-color: #ffffff !important;
+}
+
+body.high-contrast-mode .slider-switch-thumb {
+  background: #ffffff !important;
+}
+
+body.high-contrast-mode .switch-control-wrap input:checked + .slider-switch-track .slider-switch-thumb {
+  background: #000000 !important;
 }
 
 body.high-contrast-mode .audio-route-pill {

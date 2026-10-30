@@ -312,7 +312,7 @@
           <div class="voice-status-info">
             <span id="voiceStatusBadge" class="status-dot online" aria-hidden="true"></span>
             <span>Status:</span>
-            <strong id="voiceAssistantStatusText" style="color: var(--text-primary);">Ready</strong>
+            <strong id="voiceAssistantStatusText" style="color: var(--text-primary);">Waiting</strong>
           </div>
           <div class="voice-status-right">
             <div id="audioRouteStatusContainer" class="audio-route-pill" title="Audio routing">
@@ -325,6 +325,33 @@
               <div class="audio-bar"></div>
               <div class="audio-bar"></div>
             </div>
+          </div>
+        </div>
+
+        <!-- Object Announcements Master Switch -->
+        <div class="voice-controls-row">
+          <div class="voice-toggle-row">
+            <div class="voice-toggle-label-wrap">
+              <span class="control-label" style="margin: 0;">Object Announcements</span>
+              <span class="control-sublabel">Spoken screen guidance for detected objects</span>
+            </div>
+            <label class="switch-control-wrap" for="toggleObjectAnnouncements">
+              <input type="checkbox" id="toggleObjectAnnouncements" class="sr-only" checked aria-label="Toggle object announcements on or off">
+              <span class="slider-switch-track" aria-hidden="true">
+                <span class="slider-switch-thumb"></span>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Announcement Volume Slider -->
+        <div class="voice-controls-row">
+          <div class="volume-header-row">
+            <span class="control-label">Announcement Volume</span>
+            <span id="valVoiceVolume" class="volume-value-text">100%</span>
+          </div>
+          <div class="volume-slider-wrap">
+            <input type="range" id="rangeVoiceVolume" class="range-slider" min="0" max="1" step="0.05" value="1.0" aria-label="Announcement volume slider">
           </div>
         </div>
 

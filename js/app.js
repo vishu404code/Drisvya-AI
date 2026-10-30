@@ -172,6 +172,30 @@ class DrisvyaApp {
       });
     }
 
+    // Master Object Announcements Switch
+    const toggleObjectAnnouncements = document.getElementById('toggleObjectAnnouncements');
+    if (toggleObjectAnnouncements && window.voiceAssistant) {
+      toggleObjectAnnouncements.checked = window.voiceAssistant.isAnnouncementsEnabled;
+      toggleObjectAnnouncements.addEventListener('change', (e) => {
+        window.voiceAssistant.setAnnouncementsEnabled(e.target.checked);
+        this.logActivity(e.target.checked ? "Object announcements enabled." : "Object announcements disabled.", "voice");
+      });
+    }
+
+    // Announcement Volume Slider
+    const rangeVoiceVolume = document.getElementById('rangeVoiceVolume');
+    const valVoiceVolume = document.getElementById('valVoiceVolume');
+    if (rangeVoiceVolume && window.voiceAssistant) {
+      rangeVoiceVolume.value = window.voiceAssistant.speechVolume;
+      if (valVoiceVolume) {
+        valVoiceVolume.textContent = `${Math.round(window.voiceAssistant.speechVolume * 100)}%`;
+      }
+      rangeVoiceVolume.addEventListener('input', (e) => {
+        const vol = parseFloat(e.target.value);
+        window.voiceAssistant.setVolume(vol);
+      });
+    }
+
     // Test Voice Announcement
     const btnTestVoice = document.getElementById('btnTestVoice');
     if (btnTestVoice) {

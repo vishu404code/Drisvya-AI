@@ -761,6 +761,108 @@
   box-shadow: 0 0 8px var(--status-online);
 }
 
+.status-dot.speaking {
+  background: var(--accent-cyan);
+  box-shadow: 0 0 10px var(--accent-cyan);
+}
+
+.status-dot.disabled {
+  background: var(--text-muted);
+  box-shadow: none;
+  opacity: 0.6;
+}
+
+/* Object Announcements Toggle Row */
+.voice-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  padding: 10px 14px;
+  background: var(--bg-surface-elevated);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+
+.voice-toggle-label-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.control-sublabel {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.switch-control-wrap {
+  position: relative;
+  display: inline-block;
+  width: 48px;
+  height: 26px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.slider-switch-track {
+  position: absolute;
+  inset: 0;
+  background: rgba(141, 165, 186, 0.25);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-full);
+  transition: all var(--transition-fast);
+}
+
+.switch-control-wrap input:checked + .slider-switch-track {
+  background: var(--accent-cyan);
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 10px var(--accent-cyan-subtle);
+}
+
+.slider-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: #ffffff;
+  border-radius: 50%;
+  transition: transform var(--transition-fast);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.switch-control-wrap input:checked + .slider-switch-track .slider-switch-thumb {
+  transform: translateX(22px);
+  background: #041423;
+}
+
+/* Announcement Volume Control */
+.volume-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.volume-value-text {
+  font-size: var(--font-size-xs);
+  font-weight: 800;
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+}
+
+.volume-slider-wrap {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bg-surface-elevated);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+
+.volume-slider-wrap .range-slider {
+  width: 100%;
+}
+
 /* Audio Wave Visualizer */
 .audio-visualizer {
   display: flex;

@@ -1,14 +1,19 @@
 /**
- * DRISVYA - Intelligent Voice Announcement Engine (Phase 3)
+ * DRISVYA - Intelligent Voice Announcement Engine
  * Full integration with SpeechSynthesis API for Android smartphones & Bluetooth audio.
  * Features:
- * - Natural language sentences for obstacles ("Person detected in front", "Chair on your left", etc.)
+ * - Natural language screen zone sentences ("Person on your left.", "Chair in front of you.", "Bottle on your right.")
+ * - Multi-frame consistency tracking (announces only after multiple consecutive frames)
+ * - Object & zone cooldowns preventing frame-by-frame repetition
+ * - Disappearance & reappearance lifecycle handling
+ * - Single-item freshness queue (no overlapping speech; discards stale announcements)
+ * - Master Object Announcements toggle (ON/OFF)
+ * - Announcement volume control
+ * - Clear three-state speech status indicator: Speaking / Waiting / Disabled
  * - English and Hindi voice selection with dialect matching
- * - Urgent warning priority system (preempts normal announcements; cannot be interrupted by low priority)
- * - Anti-repetitive cooldown & deduplication system
  * - Audio unlocker on user interaction (resolves Android mobile autoplay restrictions)
- * - Persistent utterance reference to prevent Chromium garbage collection freeze
  * - Bluetooth audio headset compatibility and status tracking
+ * - Preserves working Test Voice button
  */
 
 const COCO_CLASS_DICTIONARY = {
@@ -17,6 +22,7 @@ const COCO_CLASS_DICTIONARY = {
   bottle: { en: 'Bottle', hi: 'बोतल' },
   cup: { en: 'Cup', hi: 'कप' },
   'dining table': { en: 'Table', hi: 'मेज' },
+  table: { en: 'Table', hi: 'मेज' },
   couch: { en: 'Sofa', hi: 'सोफा' },
   bed: { en: 'Bed', hi: 'बिस्तर' },
   laptop: { en: 'Laptop', hi: 'लैपटॉप' },
@@ -48,31 +54,32 @@ class VoiceAssistant {
     this.synth = typeof window !== 'undefined' ? window.speechSynthesis : null;
     this.currentLanguage = (typeof localStorage !== 'undefined' && localStorage.getItem('drisvya_lang')) || 'en';
     this.isMuted = false;
+    this.isAnnouncementsEnabled = (typeof localStorage !== 'undefined' ? localStorage.getItem('drisvya_announcements') !== 'false' : true);
     this.speechRate = (typeof localStorage !== 'undefined' && parseFloat(localStorage.getItem('drisvya_speed'))) || 1.0;
     this.speechPitch = 1.0;
-    this.speechVolume = 1.0;
+    this.speechVolume = (typeof localStorage !== 'undefined' && parseFloat(localStorage.getItem('drisvya_volume'))) || 1.0;
 
-    // Cooldown & deduplication state
+    // Multi-frame stability tracking & cooldowns
+    this.trackedObjects = new Map(); // key: `${class}_${position}` -> { class, position, consecutiveCount, lastSeenTime, lastAnnouncedTime, announcedInCurrentAppearance, disappeared }
+    this.requiredConsecutiveFrames = 2; // Must be detected in at least 2 consecutive frames for stability
+    this.objectCooldown = 6000; // 6 seconds cooldown per object and zone
+    this.globalAnnouncementCooldown = 2200; // 2.2 seconds minimum gap between speech announcements
+    this.lastAnnouncementTime = 0;
+    this.pendingAnnouncement = null; // { candidate, timestamp } - queued freshness announcement
+
+    // Speech state
+    this.isSpeaking = false;
+    this.isUrgentSpeaking = false;
+    this.activeUtterance = null; // Prevents Chromium garbage collection bug on Android
+    this.isAudioUnlocked = false; // Audio unlock flag
+
     this.lastAnnouncement = {
       en: "DRISVYA assistive vision platform is ready in standby. Tap Start Assistance to begin.",
       hi: "दृश्या विज़ुअल सहायता मंच स्टैंडबाय पर तैयार है। शुरू करने के लिए स्टार्ट सहायता पर टैप करें।"
     };
-    this.lastAnnouncedKey = '';
-    this.lastAnnouncedTime = 0;
-    this.cooldownInterval = 2500; // 2.5s configurable cooldown between standard announcements
-    this.recentDetections = new Map(); // key -> { time, position, proximity }
-
-    // Priority management
-    this.isUrgentSpeaking = false;
-    this.isSpeaking = false;
-    this.activeUtterance = null; // Prevents Chromium garbage collection bug on Android
-
-    // Audio unlock state
-    this.isAudioUnlocked = false;
 
     // Bluetooth & system audio routing status
     this.audioRoute = 'System Audio Output';
-
     this.availableVoices = [];
     this.init();
   }
@@ -80,7 +87,7 @@ class VoiceAssistant {
   init() {
     if (!this.synth) {
       console.warn('[DRISVYA Voice] SpeechSynthesis is not supported on this browser.');
-      this.updateStatusUI('Unavailable');
+      this.updateStatusUI('Disabled');
       return;
     }
 
@@ -91,7 +98,9 @@ class VoiceAssistant {
 
     // Inspect audio output devices for Bluetooth headsets
     this.checkAudioOutputDevices();
-    this.updateStatusUI('Ready');
+
+    // Initial state: Waiting (if enabled) or Disabled
+    this.updateStatusUI(this.isAnnouncementsEnabled && !this.isMuted ? 'Waiting' : 'Disabled');
   }
 
   /**
@@ -135,10 +144,10 @@ class VoiceAssistant {
       const devices = await navigator.mediaDevices.enumerateDevices();
       const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
       const hasBluetooth = audioOutputs.some(d => 
-        d.label.toLowerCase().includes('bluetooth') || 
-        d.label.toLowerCase().includes('wireless') || 
-        d.label.toLowerCase().includes('headset') ||
-        d.label.toLowerCase().includes('earbuds')
+        (d.label || '').toLowerCase().includes('bluetooth') || 
+        (d.label || '').toLowerCase().includes('wireless') || 
+        (d.label || '').toLowerCase().includes('headset') ||
+        (d.label || '').toLowerCase().includes('earbuds')
       );
 
       if (hasBluetooth) {
@@ -151,7 +160,6 @@ class VoiceAssistant {
 
       this.updateAudioRouteUI();
     } catch (e) {
-      // Safe fallback
       this.audioRoute = 'System Audio Output';
       this.updateAudioRouteUI();
     }
@@ -174,7 +182,6 @@ class VoiceAssistant {
     if (!this.availableVoices.length) return null;
 
     if (langCode === 'hi') {
-      // Find Hindi voice
       const hindi = this.availableVoices.find(v => 
         v.lang.toLowerCase().replace('_', '-').startsWith('hi') || 
         v.name.toLowerCase().includes('hindi')
@@ -182,7 +189,6 @@ class VoiceAssistant {
       if (hindi) return hindi;
     }
 
-    // For English: Prefer Indian English (natural for bilingual context) or clean US/UK
     const indianEnglish = this.availableVoices.find(v => v.lang === 'en-IN' || v.lang === 'en_IN');
     if (indianEnglish && langCode === 'en') return indianEnglish;
 
@@ -202,7 +208,7 @@ class VoiceAssistant {
       const feedback = lang === 'en' 
         ? "Language set to English." 
         : "भाषा हिन्दी में सेट कर दी गई है।";
-      this.speak(feedback, { force: true, priority: 'normal' });
+      this.speak(feedback, { force: true, priority: 'urgent' });
       return true;
     }
     return false;
@@ -211,17 +217,49 @@ class VoiceAssistant {
   setMute(mute) {
     this.isMuted = !!mute;
     if (this.isMuted && this.synth) {
+      this.clearQueue();
       this.synth.cancel();
       this.stopVisualizer();
       this.isUrgentSpeaking = false;
       this.isSpeaking = false;
     }
-    this.updateStatusUI(this.isMuted ? 'Muted' : 'Ready');
+    this.updateStatusUI(this.isMuted || !this.isAnnouncementsEnabled ? 'Disabled' : 'Waiting');
   }
 
   toggleMute() {
     this.setMute(!this.isMuted);
     return this.isMuted;
+  }
+
+  setAnnouncementsEnabled(enabled) {
+    this.isAnnouncementsEnabled = !!enabled;
+    try {
+      localStorage.setItem('drisvya_announcements', this.isAnnouncementsEnabled ? 'true' : 'false');
+    } catch (e) {}
+
+    if (!this.isAnnouncementsEnabled) {
+      this.clearQueue();
+      if (this.synth) this.synth.cancel();
+      this.stopVisualizer();
+      this.isSpeaking = false;
+      this.isUrgentSpeaking = false;
+      this.updateStatusUI('Disabled');
+    } else {
+      this.updateStatusUI(this.isMuted ? 'Disabled' : 'Waiting');
+    }
+
+    // Sync UI checkbox if present
+    const toggleEl = document.getElementById('toggleObjectAnnouncements');
+    if (toggleEl && toggleEl.checked !== this.isAnnouncementsEnabled) {
+      toggleEl.checked = this.isAnnouncementsEnabled;
+    }
+
+    // Sync accessibility settings toggle
+    if (window.a11yManager && window.a11yManager.preferences.voiceAlerts !== this.isAnnouncementsEnabled) {
+      window.a11yManager.preferences.voiceAlerts = this.isAnnouncementsEnabled;
+      window.a11yManager.updateToggleUI('toggleVoiceAlerts', this.isAnnouncementsEnabled);
+      window.a11yManager.savePreferences();
+    }
   }
 
   setSpeechRate(rate) {
@@ -231,10 +269,189 @@ class VoiceAssistant {
     } catch (e) {}
   }
 
+  setVolume(volume) {
+    this.speechVolume = Math.max(0.0, Math.min(1.0, parseFloat(volume)));
+    try {
+      localStorage.setItem('drisvya_volume', String(this.speechVolume));
+    } catch (e) {}
+
+    const valEl = document.getElementById('valVoiceVolume');
+    if (valEl) {
+      valEl.textContent = `${Math.round(this.speechVolume * 100)}%`;
+    }
+  }
+
+  /**
+   * Natural English and Hindi screen zone sentence formatting
+   * Screen positions: Left, Centre, Right
+   */
+  formatPositionSentence(name, position, lang) {
+    if (lang === 'hi') {
+      if (position === 'Left') {
+        return `बाईं ओर ${name} है।`;
+      } else if (position === 'Right') {
+        return `दाईं ओर ${name} है।`;
+      } else if (position === 'Centre') {
+        return `आपके सामने ${name} है।`;
+      } else {
+        return `${name} दिखाई दे रहा है।`;
+      }
+    } else {
+      if (position === 'Left') {
+        return `${name} on your left.`;
+      } else if (position === 'Right') {
+        return `${name} on your right.`;
+      } else if (position === 'Centre') {
+        return `${name} in front of you.`;
+      } else {
+        return `${name} detected.`;
+      }
+    }
+  }
+
+  getFriendlyName(rawClass, lang) {
+    const key = (rawClass || '').toLowerCase().trim();
+    if (COCO_CLASS_DICTIONARY[key]) {
+      return COCO_CLASS_DICTIONARY[key][lang] || COCO_CLASS_DICTIONARY[key].en;
+    }
+    return key.charAt(0).toUpperCase() + key.slice(1).replace('_', ' ');
+  }
+
+  /**
+   * Process actual predictions from live detection stream
+   * - Tracks consecutive frames for stable detection
+   * - Avoids frame-by-frame repetitive speech
+   * - Respects per-object cooldowns
+   * - Handles disappearance & reappearance
+   * - Prioritizes top relevant detection
+   * - Queues cleanly without speech overlap
+   */
+  handleDetections(predictions = []) {
+    if (!this.isAnnouncementsEnabled || this.isMuted) return;
+
+    const now = Date.now();
+    const currentFrameKeys = new Set();
+
+    // 1. Process detections in current frame
+    if (predictions && predictions.length > 0) {
+      predictions.forEach(pred => {
+        const pos = pred.spatial ? pred.spatial.position : 'Centre';
+        const key = `${pred.class}_${pos}`;
+        currentFrameKeys.add(key);
+
+        let tracked = this.trackedObjects.get(key);
+        if (!tracked) {
+          tracked = {
+            class: pred.class,
+            position: pos,
+            consecutiveCount: 0,
+            lastSeenTime: now,
+            lastAnnouncedTime: 0,
+            announcedInCurrentAppearance: false,
+            disappeared: false,
+            bbox: pred.bbox,
+            score: pred.score || 0
+          };
+          this.trackedObjects.set(key, tracked);
+        }
+
+        // Increment consecutive frames
+        tracked.consecutiveCount++;
+        tracked.lastSeenTime = now;
+        tracked.bbox = pred.bbox;
+        tracked.score = pred.score || 0;
+
+        // If it previously disappeared and came back, reset disappeared flag
+        if (tracked.disappeared) {
+          tracked.disappeared = false;
+        }
+      });
+    }
+
+    // 2. Mark objects that disappeared (not in current frame for > 1500ms)
+    this.trackedObjects.forEach((tracked, key) => {
+      if (!currentFrameKeys.has(key)) {
+        if (now - tracked.lastSeenTime > 1500) {
+          tracked.consecutiveCount = 0;
+          tracked.announcedInCurrentAppearance = false;
+          tracked.disappeared = true;
+        }
+      }
+    });
+
+    if (!predictions || predictions.length === 0) return;
+
+    // 3. Find candidates eligible for announcement:
+    // - Must meet required consecutive frames
+    // - Must not already be announced during this appearance
+    // - Must have passed the per-object cooldown
+    const eligibleCandidates = [];
+    this.trackedObjects.forEach((tracked, key) => {
+      if (
+        currentFrameKeys.has(key) &&
+        tracked.consecutiveCount >= this.requiredConsecutiveFrames &&
+        !tracked.announcedInCurrentAppearance &&
+        (now - tracked.lastAnnouncedTime >= this.objectCooldown)
+      ) {
+        eligibleCandidates.push(tracked);
+      }
+    });
+
+    if (eligibleCandidates.length === 0) return;
+
+    // 4. Prioritize: sort by bounding box area descending (largest/most prominent first)
+    eligibleCandidates.sort((a, b) => {
+      const areaA = (a.bbox && a.bbox[2] * a.bbox[3]) || 0;
+      const areaB = (b.bbox && b.bbox[2] * b.bbox[3]) || 0;
+      return areaB - areaA;
+    });
+
+    const chosenCandidate = eligibleCandidates[0];
+
+    // 5. Prevent overlapping speech
+    // If speech is already playing, queue this announcement (max 1 fresh pending announcement)
+    if (this.isSpeaking || (this.synth && this.synth.speaking)) {
+      this.pendingAnnouncement = {
+        candidate: chosenCandidate,
+        timestamp: now
+      };
+      return;
+    }
+
+    // If within global cooldown, store in pending queue
+    if (now - this.lastAnnouncementTime < this.globalAnnouncementCooldown) {
+      this.pendingAnnouncement = {
+        candidate: chosenCandidate,
+        timestamp: now
+      };
+      return;
+    }
+
+    // 6. Speak the chosen candidate
+    this.executeAnnouncement(chosenCandidate, now);
+  }
+
+  executeAnnouncement(candidate, timestamp) {
+    candidate.announcedInCurrentAppearance = true;
+    candidate.lastAnnouncedTime = timestamp;
+    this.lastAnnouncementTime = timestamp;
+    this.pendingAnnouncement = null;
+
+    const friendlyName = this.getFriendlyName(candidate.class, this.currentLanguage);
+    const sentence = this.formatPositionSentence(friendlyName, candidate.position, this.currentLanguage);
+
+    this.speak(sentence, { priority: 'normal' });
+
+    if (candidate.position === 'Centre' && window.a11yManager) {
+      window.a11yManager.vibrate(35);
+    }
+    if (window.app) {
+      window.app.logActivity(sentence, "voice");
+    }
+  }
+
   /**
    * Speak announcement with priority management & Android Chromium stability
-   * @param {string} text - The sentence to speak
-   * @param {object} options - { priority: 'urgent'|'normal', force: boolean, lang: string }
    */
   speak(text, options = {}) {
     if (!this.synth) return;
@@ -242,31 +459,32 @@ class VoiceAssistant {
 
     const priority = options.priority || 'normal';
 
-    // Rule: Ordinary detections CANNOT interrupt active urgent warnings
-    if (this.isUrgentSpeaking && priority !== 'urgent') {
+    // Announcements disabled check (unless forced by Test Voice or user action)
+    if (!this.isAnnouncementsEnabled && !options.force) {
       return;
     }
-
-    // Announce to Screen Readers immediately via ARIA live region
-    this.announceToScreenReader(text);
 
     if (this.isMuted && !options.force) {
       return;
     }
 
-    // If urgent warning arrives while ordinary message is playing, interrupt immediately
+    // Urgent warnings interrupt lower-priority announcements
     if (priority === 'urgent' && this.synth.speaking) {
       this.synth.cancel();
-    } else if (this.synth.speaking && priority !== 'urgent') {
-      // Don't pile up speech if already speaking normal message
+      this.isSpeaking = false;
+    } else if (this.isSpeaking || this.synth.speaking) {
+      // Ordinary announcements must not interrupt an announcement already playing
       return;
     }
 
-    // Store for repeat functionality
+    // Announce to Screen Readers via ARIA live region
+    this.announceToScreenReader(text);
+
+    // Save for Repeat Audio
     this.lastAnnouncement[this.currentLanguage] = text;
 
     const utterance = new SpeechSynthesisUtterance(text);
-    this.activeUtterance = utterance; // Keep reference to prevent GC freeze on Chrome
+    this.activeUtterance = utterance; // Prevent V8 garbage collection mid-speech
 
     const targetLang = options.lang || (this.currentLanguage === 'hi' ? 'hi-IN' : 'en-US');
     utterance.lang = targetLang;
@@ -289,34 +507,49 @@ class VoiceAssistant {
       this.updateStatusUI('Speaking');
     };
 
-    utterance.onend = () => {
+    const handleSpeechEnd = () => {
       this.isSpeaking = false;
       this.isUrgentSpeaking = false;
       this.activeUtterance = null;
       this.stopVisualizer();
-      this.updateStatusUI(this.isMuted ? 'Muted' : 'Ready');
+
+      // Check queued announcement (only play if fresh, < 2500ms)
+      if (this.pendingAnnouncement && this.isAnnouncementsEnabled && !this.isMuted) {
+        const pending = this.pendingAnnouncement;
+        this.pendingAnnouncement = null;
+        const now = Date.now();
+        if (now - pending.timestamp < 2500 && pending.candidate) {
+          this.executeAnnouncement(pending.candidate, now);
+          return;
+        }
+      }
+
+      this.updateStatusUI(this.isAnnouncementsEnabled && !this.isMuted ? 'Waiting' : 'Disabled');
     };
 
+    utterance.onend = handleSpeechEnd;
     utterance.onerror = (e) => {
-      this.isSpeaking = false;
-      this.isUrgentSpeaking = false;
-      this.activeUtterance = null;
-      this.stopVisualizer();
-      this.updateStatusUI(this.isMuted ? 'Muted' : 'Ready');
       console.warn('[DRISVYA Voice] Speech error:', e);
+      handleSpeechEnd();
     };
 
     try {
-      // On Android Chrome, resume before speak ensures queue isn't paused
       if (this.synth.paused) {
         this.synth.resume();
       }
       this.synth.speak(utterance);
     } catch (err) {
       console.error('[DRISVYA Voice] Speech call failed:', err);
-      this.isSpeaking = false;
-      this.isUrgentSpeaking = false;
+      handleSpeechEnd();
     }
+  }
+
+  /**
+   * Clear pending queue and reset tracking
+   */
+  clearQueue() {
+    this.pendingAnnouncement = null;
+    this.trackedObjects.clear();
   }
 
   /**
@@ -339,112 +572,6 @@ class VoiceAssistant {
     }
     if (window.app) {
       window.app.logActivity("Voice announcement test triggered.", "voice");
-    }
-  }
-
-  /**
-   * Process live detection predictions and decide intelligent announcements
-   * Handles:
-   * - Urgent close-range obstacle warnings (highest priority)
-   * - Natural sentences with Left/Centre/Right
-   * - Deduplication & cooldowns
-   */
-  handleDetections(predictions = []) {
-    if (!predictions || !predictions.length || this.isMuted) return;
-    const now = Date.now();
-
-    // 1. Check for URGENT WARNINGS first
-    // An object that is very close (large bounding box) in the Centre or immediately in front
-    const urgentCandidate = predictions.find(p => {
-      const isClose = p.proximity && p.proximity.level === 'Close';
-      const isCentre = p.spatial && p.spatial.position === 'Centre';
-      return isClose && isCentre;
-    });
-
-    if (urgentCandidate) {
-      // Urgent warning condition!
-      const urgentKey = `urgent_${urgentCandidate.class}`;
-      // Throttle urgent warning to once every 3.5s so user can hear and react
-      if (now - this.lastAnnouncedTime > 3500 || this.lastAnnouncedKey !== urgentKey) {
-        this.lastAnnouncedTime = now;
-        this.lastAnnouncedKey = urgentKey;
-
-        const friendlyName = this.getFriendlyName(urgentCandidate.class, this.currentLanguage);
-        const urgentSentence = this.formatUrgentSentence(friendlyName, this.currentLanguage);
-
-        // Speak with urgent priority
-        this.speak(urgentSentence, { priority: 'urgent' });
-
-        if (window.soundEngine) window.soundEngine.playAlert();
-        if (window.a11yManager) window.a11yManager.vibrate([100, 50, 100]);
-        if (window.app) window.app.logActivity(urgentSentence, "alert");
-        return;
-      }
-    }
-
-    // 2. Normal Announcements (Subject to cooldown & deduplication)
-    if (now - this.lastAnnouncedTime < this.cooldownInterval) {
-      return; // Still in cooldown
-    }
-
-    // Prioritize largest object in view
-    const sorted = [...predictions].sort((a, b) => (b.bbox[2] * b.bbox[3]) - (a.bbox[2] * a.bbox[3]));
-    const primary = sorted[0];
-
-    const pos = primary.spatial ? primary.spatial.position : 'Centre';
-    const objectKey = `${primary.class}_${pos}`;
-
-    // Deduplication: Avoid repeating exact same object and position unless 5 seconds have passed
-    if (this.lastAnnouncedKey === objectKey && now - this.lastAnnouncedTime < 5000) {
-      return;
-    }
-
-    this.lastAnnouncedKey = objectKey;
-    this.lastAnnouncedTime = now;
-
-    const friendlyName = this.getFriendlyName(primary.class, this.currentLanguage);
-    const sentence = this.formatPositionSentence(friendlyName, pos, this.currentLanguage);
-
-    this.speak(sentence, { priority: 'normal' });
-
-    if (pos === 'Centre' && window.a11yManager) {
-      window.a11yManager.vibrate(40);
-    }
-  }
-
-  getFriendlyName(rawClass, lang) {
-    if (COCO_CLASS_DICTIONARY[rawClass]) {
-      return COCO_CLASS_DICTIONARY[rawClass][lang];
-    }
-    // Fallback: capitalize
-    return rawClass.charAt(0).toUpperCase() + rawClass.slice(1).replace('_', ' ');
-  }
-
-  formatPositionSentence(name, position, lang) {
-    if (lang === 'hi') {
-      if (position === 'Left') {
-        return `बाईं ओर ${name} दिखाई दे रहा है।`;
-      } else if (position === 'Right') {
-        return `दाईं ओर ${name} दिखाई दे रहा है।`;
-      } else {
-        return `सामने ${name} दिखाई दे रहा है।`;
-      }
-    } else {
-      if (position === 'Left') {
-        return `${name} detected on your left.`;
-      } else if (position === 'Right') {
-        return `${name} detected on your right.`;
-      } else {
-        return `${name} detected in front.`;
-      }
-    }
-  }
-
-  formatUrgentSentence(name, lang) {
-    if (lang === 'hi') {
-      return `चेतावनी! सामने बहुत करीब ${name} है।`;
-    } else {
-      return `Warning! ${name} is very close ahead.`;
     }
   }
 
@@ -473,6 +600,9 @@ class VoiceAssistant {
     if (visualizer) visualizer.classList.remove('speaking');
   }
 
+  /**
+   * Update Status UI indicator: Speaking / Waiting / Disabled
+   */
   updateStatusUI(statusText) {
     const statusEl = document.getElementById('voiceAssistantStatusText');
     const badgeEl = document.getElementById('voiceStatusBadge');
@@ -481,16 +611,16 @@ class VoiceAssistant {
     if (badgeEl) {
       badgeEl.className = 'status-dot';
       if (statusText === 'Speaking') {
+        badgeEl.classList.add('speaking');
         badgeEl.style.background = 'var(--accent-cyan)';
         badgeEl.style.boxShadow = '0 0 10px var(--accent-cyan)';
-      } else if (statusText === 'Ready') {
+      } else if (statusText === 'Waiting') {
+        badgeEl.classList.add('online');
         badgeEl.style.background = 'var(--status-online)';
         badgeEl.style.boxShadow = '0 0 8px var(--status-online)';
-      } else if (statusText === 'Muted') {
-        badgeEl.style.background = 'var(--status-warning)';
-        badgeEl.style.boxShadow = 'none';
-      } else {
-        badgeEl.style.background = 'var(--status-danger)';
+      } else if (statusText === 'Disabled') {
+        badgeEl.classList.add('disabled');
+        badgeEl.style.background = 'var(--status-standby)';
         badgeEl.style.boxShadow = 'none';
       }
     }

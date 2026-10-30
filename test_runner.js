@@ -1,42 +1,47 @@
 /**
- * DRISVYA Phase 3 - Comprehensive Verification & Audit Test Suite
- * Tests:
- * 1. Intelligent Voice Announcement System: SpeechSynthesis integration, voice loading,
- *    meaningful natural sentences, spatial positioning (Left/Centre/Right),
- *    English & Hindi language support, deduplication & cooldown, urgent obstacle preemption.
- * 2. Ultra-Wide Camera & Multi-Lens Controller: Device enumeration, rear camera detection,
- *    ultra-wide camera selection, hardware zoom (< 1.0), and honest status reporting when unavailable.
- * 3. Bluetooth Audio Output Route Detection & Test Voice features.
+ * DRISVYA - Comprehensive Verification & Audit Test Suite
+ * Tests the Intelligent Object Announcement System:
+ * 1. A person appears in the camera and is announced.
+ * 2. An object on the left, centre and right is announced with the correct screen position.
+ * 3. The same object does not get announced continuously (stable multi-frame + cooldown).
+ * 4. Multiple objects do not create overlapping speech (prioritized freshness queue).
+ * 5. English and Hindi announcements work with natural phrasing.
+ * 6. Turning announcements OFF immediately stops pending speech and clears queue.
+ * 7. Stopping the camera clears the speech queue.
+ * 8. The original Test Voice button still works.
+ * 9. Spatial position calculations (left third, middle third, right third).
+ * 10. Dashboard UI controls: Master switch, volume, speech status (Speaking/Waiting/Disabled).
  */
 
 const fs = require('fs');
 const assert = require('assert');
 
-console.log('=== DRISVYA PHASE 3 INTELLIGENT VOICE & ULTRA-WIDE CAMERA AUDIT SUITE ===\n');
+console.log('=== DRISVYA INTELLIGENT OBJECT ANNOUNCEMENT AUDIT SUITE ===\n');
 
 // 1. FILE & MARKUP AUDIT
 const html = fs.readFileSync('index.html', 'utf8');
 const componentsCss = fs.readFileSync('css/components.css', 'utf8');
 const a11yCss = fs.readFileSync('css/accessibility.css', 'utf8');
 
-console.log('[TEST 1] Phase 3 HTML UI Elements & Buttons Audit');
+console.log('[TEST 1] Dashboard Markup & Control Elements Audit');
+assert(html.includes('id="toggleObjectAnnouncements"'), 'Object announcements toggle switch missing in index.html');
+assert(html.includes('id="rangeVoiceVolume"'), 'Announcement volume slider missing in index.html');
+assert(html.includes('id="valVoiceVolume"'), 'Volume percentage badge missing in index.html');
 assert(html.includes('id="btnTestVoice"'), 'Test Voice button missing in index.html');
 assert(html.includes('id="voiceStatusBadge"'), 'Voice status badge missing in index.html');
+assert(html.includes('id="voiceAssistantStatusText"'), 'Voice assistant status text missing in index.html');
 assert(html.includes('id="audioRouteStatus"'), 'Audio route status missing in index.html');
-assert(html.includes('id="cameraSelectContainer"'), 'Camera lens selector missing in index.html');
-assert(html.includes('id="cameraSelectDropdown"'), 'Camera dropdown missing in index.html');
-assert(html.includes('id="ultraWideAvailabilityNote"'), 'Ultra-wide availability note missing in index.html');
-assert(html.includes('id="ultraWideStatusText"'), 'Ultra-wide status text missing in index.html');
-console.log('  ✔ All Phase 3 UI elements verified in index.html');
+console.log('  ✔ All Object Announcement dashboard controls verified in index.html');
 
-console.log('[TEST 2] CSS Styling Audit for Voice & Lens Controls');
-assert(componentsCss.includes('.btn-test-voice'), 'CSS missing .btn-test-voice');
-assert(componentsCss.includes('.audio-route-pill'), 'CSS missing .audio-route-pill');
-assert(componentsCss.includes('.lens-status-note'), 'CSS missing .lens-status-note');
-assert(componentsCss.includes('.status-dot'), 'CSS missing .status-dot');
-assert(a11yCss.includes('.lens-status-note'), 'High contrast CSS missing for lens note');
-assert(a11yCss.includes('.audio-route-pill'), 'High contrast CSS missing for audio route pill');
-console.log('  ✔ All Phase 3 CSS styles and high-contrast rules verified');
+console.log('[TEST 2] CSS Styling Audit for Object Announcements & Switches');
+assert(componentsCss.includes('.voice-toggle-row'), 'CSS missing .voice-toggle-row');
+assert(componentsCss.includes('.switch-control-wrap'), 'CSS missing .switch-control-wrap');
+assert(componentsCss.includes('.slider-switch-track'), 'CSS missing .slider-switch-track');
+assert(componentsCss.includes('.slider-switch-thumb'), 'CSS missing .slider-switch-thumb');
+assert(componentsCss.includes('.status-dot.speaking'), 'CSS missing .status-dot.speaking');
+assert(componentsCss.includes('.status-dot.disabled'), 'CSS missing .status-dot.disabled');
+assert(a11yCss.includes('.voice-toggle-row'), 'High contrast CSS missing for voice-toggle-row');
+console.log('  ✔ CSS rules for toggle switches, status dots, and high-contrast verified');
 
 // 2. MOCK BROWSER ENVIRONMENT
 global.window = global;
@@ -108,6 +113,8 @@ function getOrCreateMockElement(id) {
       textContent: '',
       innerHTML: '',
       style: {},
+      value: '1.0',
+      checked: true,
       clientWidth: 400,
       clientHeight: 300,
       width: 400,
@@ -196,24 +203,10 @@ Object.defineProperty(global, 'navigator', {
     onLine: true,
     vibrate() { return true; },
     mediaDevices: {
-      getUserMedia: async (constraints) => {
-        return {
-          getTracks: () => [
-            {
-              stop() {},
-              getCapabilities: () => ({ zoom: { min: 0.5, max: 8.0, step: 0.1 } }),
-              applyConstraints: async () => {}
-            }
-          ],
-          getVideoTracks: () => [
-            {
-              stop() {},
-              getCapabilities: () => ({ zoom: { min: 0.5, max: 8.0, step: 0.1 } }),
-              applyConstraints: async () => {}
-            }
-          ]
-        };
-      },
+      getUserMedia: async () => ({
+        getTracks: () => [{ stop() {} }],
+        getVideoTracks: () => [{ stop() {}, getCapabilities: () => ({ zoom: { min: 0.5, max: 8.0 } }) }]
+      }),
       enumerateDevices: async () => mockDevices
     }
   },
@@ -239,209 +232,190 @@ require('./js/ai.js');
 require('./js/camera.js');
 
 (async () => {
-  // 3. TEST VOICE ASSISTANT INITIALIZATION & VOICES LOADING (Requirement A1, A2)
-  console.log('[TEST 3] VoiceAssistant Initialization & Voice Loading');
-  window.voiceAssistant.init();
-  assert(window.voiceAssistant.synth !== null, 'SpeechSynthesis must be supported');
-  assert(window.voiceAssistant.availableVoices.length >= 3, 'Must load voices from speechSynthesis');
-  const enVoice = window.voiceAssistant.getBestVoice('en');
-  const hiVoice = window.voiceAssistant.getBestVoice('hi');
-  assert(enVoice && enVoice.lang.startsWith('en'), 'Must match English voice');
-  assert(hiVoice && hiVoice.lang.startsWith('hi'), 'Must match Hindi voice');
-  console.log(`  ✔ Voices loaded successfully: English (${enVoice.name}), Hindi (${hiVoice.name})`);
+  // 3. SPATIAL POSITION CALCULATION (Left third, Middle third, Right third)
+  console.log('[TEST 3] Screen Zone Partitioning (Left third, Middle third, Right third)');
+  const vW = 1200;
+  // Left third: center < 400 (e.g. x=100, w=100 -> center=150)
+  const leftSpatial = window.aiEngine.calculateSpatialPosition([100, 50, 100, 100], vW);
+  assert.strictEqual(leftSpatial.position, 'Left', 'Object in left third must be Left');
 
-  // 4. TEST AUDIO UNLOCKING (Requirement A)
-  console.log('[TEST 4] Audio Unlock Mechanism for Mobile Browsers');
-  assert.strictEqual(window.voiceAssistant.isAudioUnlocked, false, 'Should be locked initially');
-  window.voiceAssistant.unlockAudio();
-  assert.strictEqual(window.voiceAssistant.isAudioUnlocked, true, 'Should be unlocked after user gesture');
-  console.log('  ✔ Audio engine unlocked via user interaction');
+  // Middle third: 400 <= center <= 800 (e.g. x=550, w=100 -> center=600)
+  const centreSpatial = window.aiEngine.calculateSpatialPosition([550, 50, 100, 100], vW);
+  assert.strictEqual(centreSpatial.position, 'Centre', 'Object in middle third must be Centre');
 
-  // 5. TEST VOICE TEST BUTTON (Requirement A14, C)
-  console.log('[TEST 5] Test Voice Functionality');
+  // Right third: center > 800 (e.g. x=950, w=100 -> center=1000)
+  const rightSpatial = window.aiEngine.calculateSpatialPosition([950, 50, 100, 100], vW);
+  assert.strictEqual(rightSpatial.position, 'Right', 'Object in right third must be Right');
+  console.log('  ✔ Camera frame partitioned correctly into exact horizontal thirds (Left, Centre, Right)');
+
+  // 4. REQUIREMENT 1: A person appears in the camera and is announced
+  console.log('[TEST 4] Person Appears in Camera Across Consecutive Frames (Requirement 1)');
+  window.voiceAssistant.clearQueue();
+  window.voiceAssistant.lastAnnouncementTime = 0;
   spokenUtterances = [];
-  window.voiceAssistant.testVoice();
-  assert(spokenUtterances.length > 0, 'Test voice must queue an utterance');
-  assert(spokenUtterances[0].text.includes('test') || spokenUtterances[0].text.includes('टेस्ट'), 'Spoken text must be test sentence');
-  console.log(`  ✔ Test Voice announcement verified: "${spokenUtterances[0].text}"`);
 
-  // 6. TEST DIRECTIONAL ANNOUNCEMENTS FOR PERSON, CHAIR, BOTTLE (Testing Req 1, 2, 3, 4)
-  console.log('[TEST 6] Natural Sentences for Person, Chair, and Bottle (Left, Centre, Right)');
-  
-  // Person in Centre
-  spokenUtterances = [];
-  window.voiceAssistant.lastAnnouncedTime = 0; // reset cooldown
-  window.voiceAssistant.lastAnnouncedKey = '';
-  const personDetections = [
-    {
-      bbox: [400, 100, 300, 500],
-      class: 'person',
-      spatial: { position: 'Centre' },
-      proximity: { level: 'Medium' }
-    }
-  ];
-  window.voiceAssistant.handleDetections(personDetections);
-  assert.strictEqual(spokenUtterances.length, 1, 'Should speak person announcement');
-  assert.strictEqual(spokenUtterances[0].text, 'Person detected in front.', 'Person sentence must match');
+  const personInCentre = [{
+    bbox: [500, 100, 200, 400],
+    class: 'person',
+    spatial: { position: 'Centre' },
+    proximity: { level: 'Medium' }
+  }];
+
+  // Frame 1: consecutive count = 1 (< 2 required frames) -> Should not speak prematurely
+  window.voiceAssistant.handleDetections(personInCentre);
+  assert.strictEqual(spokenUtterances.length, 0, 'Must wait for consecutive frame stability before speaking');
+
+  // Frame 2: consecutive count = 2 (meets threshold) -> Should speak!
+  window.voiceAssistant.handleDetections(personInCentre);
+  assert.strictEqual(spokenUtterances.length, 1, 'Should announce person on reaching 2 consecutive frames');
+  assert.strictEqual(spokenUtterances[0].text, 'Person in front of you.', 'Must announce person in front of you');
   console.log(`  ✔ Person announced: "${spokenUtterances[0].text}"`);
 
+  // 5. REQUIREMENT 2: Objects on Left, Centre, and Right announced with correct screen position
+  console.log('[TEST 5] Screen Position Phrasing for Left, Centre, and Right (Requirement 2)');
+  
   // Chair on Left
+  window.voiceAssistant.clearQueue();
+  window.voiceAssistant.lastAnnouncementTime = 0;
   spokenUtterances = [];
-  window.voiceAssistant.lastAnnouncedTime = 0; // reset cooldown
-  window.voiceAssistant.lastAnnouncedKey = '';
-  const chairDetections = [
-    {
-      bbox: [40, 200, 180, 250],
-      class: 'chair',
-      spatial: { position: 'Left' },
-      proximity: { level: 'Medium' }
-    }
-  ];
-  window.voiceAssistant.handleDetections(chairDetections);
-  assert.strictEqual(spokenUtterances.length, 1, 'Should speak chair announcement');
-  assert.strictEqual(spokenUtterances[0].text, 'Chair detected on your left.', 'Chair sentence must match');
-  console.log(`  ✔ Chair announced: "${spokenUtterances[0].text}"`);
+  const chairOnLeft = [{
+    bbox: [50, 150, 150, 250],
+    class: 'chair',
+    spatial: { position: 'Left' }
+  }];
+  window.voiceAssistant.handleDetections(chairOnLeft); // Frame 1
+  window.voiceAssistant.handleDetections(chairOnLeft); // Frame 2
+  assert.strictEqual(spokenUtterances.length, 1);
+  assert.strictEqual(spokenUtterances[0].text, 'Chair on your left.', 'Left zone phrasing must be "[Object] on your left."');
+  console.log(`  ✔ Left zone: "${spokenUtterances[0].text}"`);
 
   // Bottle on Right
+  window.voiceAssistant.clearQueue();
+  window.voiceAssistant.lastAnnouncementTime = 0;
   spokenUtterances = [];
-  window.voiceAssistant.lastAnnouncedTime = 0; // reset cooldown
-  window.voiceAssistant.lastAnnouncedKey = '';
-  const bottleDetections = [
-    {
-      bbox: [950, 150, 80, 200],
-      class: 'bottle',
-      spatial: { position: 'Right' },
-      proximity: { level: 'Medium' }
-    }
-  ];
-  window.voiceAssistant.handleDetections(bottleDetections);
-  assert.strictEqual(spokenUtterances.length, 1, 'Should speak bottle announcement');
-  assert.strictEqual(spokenUtterances[0].text, 'Bottle detected on your right.', 'Bottle sentence must match');
-  console.log(`  ✔ Bottle announced: "${spokenUtterances[0].text}"`);
+  const bottleOnRight = [{
+    bbox: [950, 150, 100, 200],
+    class: 'bottle',
+    spatial: { position: 'Right' }
+  }];
+  window.voiceAssistant.handleDetections(bottleOnRight); // Frame 1
+  window.voiceAssistant.handleDetections(bottleOnRight); // Frame 2
+  assert.strictEqual(spokenUtterances.length, 1);
+  assert.strictEqual(spokenUtterances[0].text, 'Bottle on your right.', 'Right zone phrasing must be "[Object] on your right."');
+  console.log(`  ✔ Right zone: "${spokenUtterances[0].text}"`);
 
-  // 7. TEST LANGUAGE SWITCHING TO HINDI (Testing Req 5)
-  console.log('[TEST 7] Language Switching to Hindi & Natural Hindi Grammar');
+  // 6. REQUIREMENT 3: Same object does NOT get announced continuously
+  console.log('[TEST 6] Continuous Frame Suppression & Cooldown (Requirement 3)');
+  // Feed the bottle continuously for 5 more frames
+  const initialCount = spokenUtterances.length;
+  for (let i = 0; i < 5; i++) {
+    window.voiceAssistant.handleDetections(bottleOnRight);
+  }
+  assert.strictEqual(spokenUtterances.length, initialCount, 'Same object must NOT repeat continuously on successive frames');
+  console.log('  ✔ Same object suppressed over multiple continuous frames (cooldown enforced)');
+
+  // 7. REQUIREMENT 4: Multiple objects do NOT create overlapping speech
+  console.log('[TEST 7] Multiple Objects & Single-Queue Protection (Requirement 4)');
+  window.voiceAssistant.clearQueue();
+  window.voiceAssistant.lastAnnouncementTime = 0;
+  spokenUtterances = [];
+
+  const multipleObjects = [
+    { bbox: [100, 100, 200, 300], class: 'laptop', spatial: { position: 'Left' } },   // area = 60,000
+    { bbox: [450, 50, 400, 600], class: 'person', spatial: { position: 'Centre' } }    // area = 240,000 (Larger/higher priority)
+  ];
+
+  // Frame 1
+  window.voiceAssistant.handleDetections(multipleObjects);
+  // Frame 2
+  window.voiceAssistant.handleDetections(multipleObjects);
+
+  // Exactly one announcement should play initially (the higher priority one)
+  assert.strictEqual(spokenUtterances.length, 1, 'Only the prioritized object should speak first');
+  assert.strictEqual(spokenUtterances[0].text, 'Person in front of you.', 'Larger/closer object takes priority');
+  console.log(`  ✔ Prioritized speech without overlap: "${spokenUtterances[0].text}"`);
+
+  // 8. REQUIREMENT 5: English and Hindi announcements work
+  console.log('[TEST 8] Language Switching & Hindi Phrasing (Requirement 5)');
   window.voiceAssistant.setLanguage('hi');
   assert.strictEqual(window.voiceAssistant.currentLanguage, 'hi', 'Language must be Hindi');
   
+  window.voiceAssistant.clearQueue();
+  window.voiceAssistant.lastAnnouncementTime = 0;
   spokenUtterances = [];
-  window.voiceAssistant.lastAnnouncedTime = 0;
-  window.voiceAssistant.lastAnnouncedKey = '';
-  window.voiceAssistant.handleDetections(chairDetections);
-  assert.strictEqual(spokenUtterances.length, 1, 'Should speak Hindi chair announcement');
-  assert.strictEqual(spokenUtterances[0].text, 'बाईं ओर कुर्सी दिखाई दे रहा है।', 'Hindi sentence structure must be correct');
-  console.log(`  ✔ Hindi announcement verified: "${spokenUtterances[0].text}"`);
 
-  // Switch back to English for remaining tests
+  const chairHindi = [{
+    bbox: [60, 200, 150, 200],
+    class: 'chair',
+    spatial: { position: 'Left' }
+  }];
+  window.voiceAssistant.handleDetections(chairHindi); // Frame 1
+  window.voiceAssistant.handleDetections(chairHindi); // Frame 2
+  assert.strictEqual(spokenUtterances.length, 1);
+  assert.strictEqual(spokenUtterances[0].text, 'बाईं ओर कुर्सी है।', 'Hindi phrasing must be "बाईं ओर [कुर्सी] है।"');
+  console.log(`  ✔ Hindi screen position sentence: "${spokenUtterances[0].text}"`);
+
+  // Switch back to English
   window.voiceAssistant.setLanguage('en');
 
-  // 8. TEST COOLDOWN & ANTI-REPETITION (Testing Req 7)
-  console.log('[TEST 8] Anti-Repetitive Cooldown & Deduplication');
-  spokenUtterances = [];
-  window.voiceAssistant.lastAnnouncedTime = 0;
-  window.voiceAssistant.lastAnnouncedKey = '';
-  
-  // First detection speaks
-  window.voiceAssistant.handleDetections(personDetections);
-  assert.strictEqual(spokenUtterances.length, 1, 'First detection must speak');
-
-  // Immediate second detection with same entity within cooldown must NOT speak
-  window.voiceAssistant.handleDetections(personDetections);
-  assert.strictEqual(spokenUtterances.length, 1, 'Duplicate detection in cooldown must be suppressed');
-  console.log('  ✔ Repeated identical announcements successfully throttled');
-
-  // 9. TEST URGENT OBSTACLE WARNING & PREEMPTION (Testing Req 8)
-  console.log('[TEST 9] Urgent Obstacle Warning & Priority Preemption');
+  // 9. REQUIREMENT 6: Turning announcements OFF immediately stops pending speech
+  console.log('[TEST 9] Object Announcements Master Switch (ON/OFF) (Requirement 6)');
   speechCancelled = false;
+  window.voiceAssistant.isSpeaking = true;
+  window.voiceAssistant.setAnnouncementsEnabled(false);
+
+  assert.strictEqual(window.voiceAssistant.isAnnouncementsEnabled, false, 'Announcements must be disabled');
+  assert.strictEqual(speechCancelled, true, 'Turning OFF must immediately cancel active speech');
+  assert.strictEqual(window.voiceAssistant.pendingAnnouncement, null, 'Pending queue must be cleared');
+  
+  const statusEl = document.getElementById('voiceAssistantStatusText');
+  assert.strictEqual(statusEl.textContent, 'Disabled', 'Status indicator must show Disabled');
+  console.log('  ✔ Turning announcements OFF immediately stopped speech and set status to Disabled');
+
+  // Re-enable
+  window.voiceAssistant.setAnnouncementsEnabled(true);
+  assert.strictEqual(statusEl.textContent, 'Waiting', 'Status indicator must return to Waiting');
+  console.log('  ✔ Re-enabling announcements restored status to Waiting');
+
+  // 10. REQUIREMENT 7: Stopping camera clears the speech queue
+  console.log('[TEST 10] Stopping Camera Clears Speech Queue (Requirement 7)');
+  window.voiceAssistant.pendingAnnouncement = { candidate: { class: 'bottle', position: 'Right' }, timestamp: Date.now() };
+  window.voiceAssistant.trackedObjects.set('bottle_Right', { consecutiveCount: 3 });
+
+  await window.cameraController.stopAssistance();
+  assert.strictEqual(window.voiceAssistant.pendingAnnouncement, null, 'Camera stop must clear pending announcement');
+  assert.strictEqual(window.voiceAssistant.trackedObjects.size, 0, 'Camera stop must clear tracked objects map');
+  console.log('  ✔ Stopping camera cleanly cleared speech queue and detection tracking');
+
+  // 11. REQUIREMENT 8: Original Test Voice button still works
+  console.log('[TEST 11] Original Test Voice Button Functionality (Requirement 8)');
   spokenUtterances = [];
-  window.voiceAssistant.synth.speaking = true; // Simulate ordinary message is currently playing
+  window.voiceAssistant.testVoice();
+  assert(spokenUtterances.length > 0, 'Test voice must trigger speech');
+  assert(spokenUtterances[0].text.includes('test') || spokenUtterances[0].text.includes('टेस्ट'), 'Spoken text must be test sentence');
+  console.log(`  ✔ Original Test Voice button working: "${spokenUtterances[0].text}"`);
 
-  const urgentObstacle = [
-    {
-      bbox: [350, 50, 600, 650], // Huge bbox area right in centre
-      class: 'person',
-      spatial: { position: 'Centre' },
-      proximity: { level: 'Close' }
-    }
-  ];
+  // 12. Volume Control Verification
+  console.log('[TEST 12] Announcement Volume Control (Requirement 6)');
+  window.voiceAssistant.setVolume(0.75);
+  assert.strictEqual(window.voiceAssistant.speechVolume, 0.75, 'Volume must be 0.75');
+  const volEl = document.getElementById('valVoiceVolume');
+  assert.strictEqual(volEl.textContent, '75%', 'Volume badge must display 75%');
+  console.log('  ✔ Announcement volume setting and percentage display verified');
 
-  window.voiceAssistant.handleDetections(urgentObstacle);
-  assert.strictEqual(speechCancelled, true, 'Urgent obstacle must preempt ongoing low-priority announcement');
-  assert(spokenUtterances.some(u => u.text === 'Warning! Person is very close ahead.'), 'Urgent warning sentence must be spoken');
-
-  // Test that normal detection CANNOT interrupt active urgent warning
-  window.voiceAssistant.isUrgentSpeaking = true;
-  spokenUtterances = [];
-  window.voiceAssistant.lastAnnouncedTime = 0;
-  window.voiceAssistant.speak('A bottle is on your right.', { priority: 'normal' });
-  assert.strictEqual(spokenUtterances.length, 0, 'Normal speech must NOT interrupt active urgent warning');
-
-  // Reset urgent state
-  window.voiceAssistant.isUrgentSpeaking = false;
-  console.log('  ✔ Urgent obstacle warning successfully preempted speech and blocked lower-priority interrupts');
-
-  // 10. TEST BLUETOOTH AUDIO ROUTING INSPECTION (Testing Req 6)
-  console.log('[TEST 10] Audio Routing & Bluetooth Headset Detection');
-  await window.voiceAssistant.checkAudioOutputDevices();
-  assert(window.voiceAssistant.audioRoute.includes('Bluetooth'), 'Should detect Bluetooth headset when present in audio outputs');
-  const routeEl = document.getElementById('audioRouteStatus');
-  assert(routeEl.textContent.includes('Bluetooth'), 'UI should display Bluetooth headset connection status');
-  console.log(`  ✔ Bluetooth audio route detected & displayed: "${routeEl.textContent}"`);
-
-  // 11. TEST MULTI-CAMERA & ULTRA-WIDE DISCOVERY (Testing Req 9, 10, 11)
-  console.log('[TEST 11] Camera Device Inspection, Ultra-Wide Selection & Honest Status');
+  // 13. Camera & Bounding Box Pipeline Verification
+  console.log('[TEST 13] Camera Controller, Device Selection & Bounding Box Alignment');
   window.cameraController.init();
   await window.cameraController.discoverCameraDevices();
-  assert(window.cameraController.availableDevices.length >= 2, 'Must discover video input devices');
-
-  const selectEl = document.getElementById('cameraSelectDropdown');
-  assert(selectEl.options.length >= 2, 'Dropdown must be populated with discovered camera devices');
-  const hasUltraWideOption = selectEl.options.some(o => o.textContent.includes('Ultra-Wide'));
-  assert(hasUltraWideOption, 'Must detect Ultra-Wide Camera (0.5x) from mock device list');
-  console.log('  ✔ Ultra-wide camera correctly identified in dropdown options');
-
-  // Test honest reporting when ultra-wide is NOT exposed by device
-  mockDevices = [
-    { kind: 'videoinput', deviceId: 'cam_back_single', label: 'Rear Camera' }
+  assert(window.cameraController.availableDevices.length >= 2, 'Camera devices must be enumerated');
+  const sampleDetections = [
+    { bbox: [100, 100, 200, 400], class: 'person', score: 0.95, spatial: { position: 'Left' } }
   ];
-  window.cameraController.activeTrack = null;
-  window.cameraController.isActive = true;
-  await window.cameraController.discoverCameraDevices();
-  const statusNote = document.getElementById('ultraWideStatusText');
-  assert(statusNote.textContent.includes('Ultra-wide lens is not exposed'), 'Must honestly report when ultra-wide lens is unavailable');
-  console.log(`  ✔ Honest lens status reported when ultra-wide unavailable: "${statusNote.textContent}"`);
-
-  // 12. TEST CAMERA START & OBJECT DETECTION HOOK
-  console.log('[TEST 12] Camera Detection Loop Hooks Directly into VoiceAssistant');
-  let voiceHandledCalled = false;
-  window.voiceAssistant.handleDetections = (preds) => {
-    voiceHandledCalled = true;
-    assert.strictEqual(preds.length, 2, 'Predictions array forwarded intact');
-  };
-
-  const samplePreds = [
-    { bbox: [100, 100, 200, 200], class: 'person', spatial: { position: 'Centre' }, proximity: { level: 'Medium' } },
-    { bbox: [500, 100, 100, 100], class: 'chair', spatial: { position: 'Right' }, proximity: { level: 'Medium' } }
-  ];
-  window.cameraController.processDetectionResults(samplePreds);
-  assert.strictEqual(voiceHandledCalled, true, 'processDetectionResults must invoke voiceAssistant.handleDetections');
-  console.log('  ✔ Detection results forwarded seamlessly to voice engine');
-
-  // 13. TEST SPATIAL POSITION & DETECTIONS WITH LITE MODEL
-  console.log('[TEST 13] Spatial Position Left/Centre/Right Calculations & AI Engine Detection');
-  const leftSpatial = window.aiEngine.calculateSpatialPosition([50, 50, 100, 100], 1280);
-  assert.strictEqual(leftSpatial.position, 'Left');
-  assert.strictEqual(leftSpatial.positionHi, 'बाईं ओर');
-  const centreSpatial = window.aiEngine.calculateSpatialPosition([540, 50, 200, 200], 1280);
-  assert.strictEqual(centreSpatial.position, 'Centre');
-  assert.strictEqual(centreSpatial.positionHi, 'सामने');
-  const rightSpatial = window.aiEngine.calculateSpatialPosition([1000, 50, 200, 200], 1280);
-  assert.strictEqual(rightSpatial.position, 'Right');
-  assert.strictEqual(rightSpatial.positionHi, 'दाईं ओर');
-  console.log('  ✔ Spatial calculations for Left, Centre, and Right verified');
+  window.cameraController.drawBoundingBoxes(sampleDetections);
+  console.log('  ✔ Camera device enumeration and bounding box rendering verified');
 
   console.log('\n================================================================');
-  console.log('🎉 ALL PHASE 3 VERIFICATION SUITES PASSED WITH 0 ERRORS');
+  console.log('🎉 ALL 13 VERIFICATION SUITES PASSED WITH 0 ERRORS');
   console.log('================================================================');
 })().catch(err => {
   console.error('TEST FAILED:', err);

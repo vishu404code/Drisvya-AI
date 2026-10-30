@@ -128,10 +128,14 @@ class AIEngine {
     let position = 'Centre';
     let positionHi = 'सामने';
 
-    if (ratio < 0.35) {
+    // Screen divided into three horizontal zones:
+    // Left: object centre is in the left third (< 1/3)
+    // Centre: object centre is in the middle third (between 1/3 and 2/3)
+    // Right: object centre is in the right third (> 2/3)
+    if (ratio < 1 / 3) {
       position = 'Left';
       positionHi = 'बाईं ओर';
-    } else if (ratio > 0.65) {
+    } else if (ratio > 2 / 3) {
       position = 'Right';
       positionHi = 'दाईं ओर';
     }

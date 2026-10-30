@@ -366,6 +366,14 @@ class CameraController {
   }
 
   async stopAssistance() {
+    // Clear voice announcement queue & tracking on camera stop
+    if (window.voiceAssistant) {
+      window.voiceAssistant.clearQueue();
+      if (window.voiceAssistant.synth) {
+        window.voiceAssistant.synth.cancel();
+      }
+    }
+
     if (!this.isActive && !this.stream) return;
 
     if (window.soundEngine) {
@@ -407,6 +415,14 @@ class CameraController {
     this.currentPredictions = [];
     this.updateStateUI(false);
     this.setStatus("Camera Inactive • Ready to Connect");
+
+    // Clear voice announcement queue & tracking on camera stop
+    if (window.voiceAssistant) {
+      window.voiceAssistant.clearQueue();
+      if (window.voiceAssistant.synth) {
+        window.voiceAssistant.synth.cancel();
+      }
+    }
 
     // Reset detection counts
     this.detections = {
