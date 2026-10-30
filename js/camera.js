@@ -239,6 +239,10 @@ class CameraController {
   async startAssistance() {
     if (this.isActive) return;
 
+    if (window.environmentAnalyzer) {
+      window.environmentAnalyzer.reset();
+    }
+
     // Crucial: Unlock speech audio engine upon user gesture
     if (window.voiceAssistant) {
       window.voiceAssistant.unlockAudio();
@@ -382,6 +386,10 @@ class CameraController {
       window.primaryPersonTracker.reset();
     }
 
+    if (window.environmentAnalyzer) {
+      window.environmentAnalyzer.reset();
+    }
+
     if (!this.isActive && !this.stream) return;
 
     if (window.soundEngine) {
@@ -434,6 +442,10 @@ class CameraController {
 
     if (window.primaryPersonTracker) {
       window.primaryPersonTracker.reset();
+    }
+
+    if (window.environmentAnalyzer) {
+      window.environmentAnalyzer.reset();
     }
 
     // Reset detection counts
@@ -529,6 +541,11 @@ class CameraController {
       const vW = (this.videoEl && this.videoEl.videoWidth) || 1280;
       const vH = (this.videoEl && this.videoEl.videoHeight) || 720;
       tracker.update(predictions, vW, vH);
+    }
+
+    // Run Environment, Wall Awareness & Forward View Analysis
+    if (window.environmentAnalyzer) {
+      window.environmentAnalyzer.analyze(this.videoEl, predictions);
     }
 
     this.updateDetectionUI();
@@ -735,6 +752,42 @@ class CameraController {
 
       this.ctx.fillStyle = '#ffffff';
       this.ctx.fillText(bannerText, bX + 12, bY + 16);
+    }
+
+    // Render Wall & Centre-View overlay indicators if environmentAnalyzer is active
+    const env = window.environmentAnalyzer;
+    if (env && env.wallDetected) {
+      const wallY = env.wallBaselineY * renderH + offsetY;
+      if (wallY > 20 && wallY < containerH - 20) {
+        this.ctx.save();
+        this.ctx.strokeStyle = 'rgba(69, 217, 237, 0.40)';
+        this.ctx.lineWidth = 1.5;
+        this.ctx.setLineDash([6, 6]);
+        this.ctx.beginPath();
+        this.ctx.moveTo(offsetX, wallY);
+        this.ctx.lineTo(offsetX + renderW, wallY);
+        this.ctx.stroke();
+
+        // Wall HUD pill
+        const wallText = `SURFACE: WALL (${env.wallProximity})`;
+        this.ctx.font = '700 9.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        const wMet = this.ctx.measureText(wallText);
+        const wPillW = wMet.width + 12;
+        const wPillH = 18;
+        const wPillX = Math.max(10, (containerW - wPillW) / 2);
+        const wPillY = Math.max(4, wallY - wPillH - 3);
+
+        this.ctx.fillStyle = 'rgba(7, 17, 31, 0.85)';
+        this.ctx.beginPath();
+        this.ctx.roundRect(wPillX, wPillY, wPillW, wPillH, 3);
+        this.ctx.fill();
+        this.ctx.strokeStyle = 'rgba(69, 217, 237, 0.6)';
+        this.ctx.stroke();
+
+        this.ctx.fillStyle = '#45d9ed';
+        this.ctx.fillText(wallText, wPillX + 6, wPillY + 12);
+        this.ctx.restore();
+      }
     }
 
     this.ctx.restore();

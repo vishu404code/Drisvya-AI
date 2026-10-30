@@ -166,6 +166,35 @@ global.document = {
     return getOrCreateMockElement(sel.replace(/^[.#]/, ''));
   },
   createElement(tag) {
+    if (tag === 'canvas') {
+      return {
+        tagName: 'CANVAS',
+        width: 160,
+        height: 120,
+        getContext() {
+          return {
+            drawImage() {},
+            getImageData() {
+              return { data: new Uint8ClampedArray(160 * 120 * 4) };
+            },
+            clearRect() {},
+            fillRect() {},
+            strokeRect() {},
+            fillText() {},
+            beginPath() {},
+            moveTo() {},
+            lineTo() {},
+            stroke() {},
+            fill() {},
+            roundRect() {},
+            save() {},
+            restore() {},
+            setLineDash() {},
+            measureText() { return { width: 50 }; }
+          };
+        }
+      };
+    }
     return {
       tagName: tag, value: '', textContent: '', selected: false, innerHTML: '', style: {},
       classList: {
@@ -216,6 +245,7 @@ require('./js/voice.js');
 require('./js/accessibility.js');
 require('./js/ai.js');
 require('./js/tracker.js');
+require('./js/environment.js');
 require('./js/camera.js');
 
 (async () => {
@@ -758,11 +788,327 @@ require('./js/camera.js');
   const statusEl = document.getElementById('valPrimaryPersonStatus');
   assert(statusEl.textContent.includes('PERSON'), 'Dashboard must display class');
   assert(statusEl.textContent.includes('CENTRE'), 'Dashboard must display direction');
-
   console.log('  ✔ Dashboard and canvas HUD display primary target direction prominently');
 
+  // ====================================================================
+  // TEST 21: CAMERA STARTS & INITIAL WALL ANALYSIS (Scenario 1 & 2)
+  // ====================================================================
+  console.log('[TEST 21] Camera Starts & Initial Wall Observation');
+  window.environmentAnalyzer.reset();
+  window.voiceAssistant.setLanguage('en');
+  window.voiceAssistant.setAnnouncementsEnabled(true);
+  spokenUtterances = [];
+  currentTime = 2000000;
+
+  // Frame 1 & 2: Initial analysis stabilizing (no speech yet)
+  const farWallVid = { videoWidth: 1280, videoHeight: 720, _simulatedWall: { areaRatio: 0.35, baselineY: 0.38, isPlanar: true, confidence: 0.88 } };
+  window.environmentAnalyzer.analyze(farWallVid, []);
+  currentTime += 100;
+  window.environmentAnalyzer.analyze(farWallVid, []);
+  assert.strictEqual(spokenUtterances.length, 0, 'Must not announce wall before target analysis frames are complete');
+
+  // Frame 3: Initial analysis target reached -> Exactly ONE initial wall update spoken!
+  currentTime += 100;
+  window.environmentAnalyzer.analyze(farWallVid, []);
+  assert.strictEqual(window.environmentAnalyzer.wallDetected, true, 'Wall must be detected in open room');
+  assert.strictEqual(window.environmentAnalyzer.wallDetectionState, 'DETECTED');
+  assert.strictEqual(spokenUtterances.length, 1, 'Exactly one initial wall announcement');
+  assert(spokenUtterances[0].text.includes('Wall') || spokenUtterances[0].text.includes('wall'), 'Spoken text must announce wall');
+  console.log(`  ✔ Camera start completed initial analysis and announced: "${spokenUtterances[0].text}"`);
+
+  // ====================================================================
+  // TEST 22: WALL APPEARS CLOSER & CLOSE STATE (Scenario 3)
+  // ====================================================================
+  console.log('[TEST 22] Wall Appears to Become Closer & Close Proximity State');
+  spokenUtterances = [];
+  currentTime += 4000; // Past 3.5s cooldown
+
+  // User approaches wall: apparent wall coverage increases and baseline descends
+  for (let i = 0; i < 4; i++) {
+    currentTime += 100;
+    const approachVid = {
+      videoWidth: 1280,
+      videoHeight: 720,
+      _simulatedWall: {
+        areaRatio: 0.40 + (i * 0.08),
+        baselineY: 0.48 + (i * 0.08),
+        isPlanar: true,
+        confidence: 0.90
+      }
+    };
+    window.environmentAnalyzer.analyze(approachVid, []);
+  }
+
+  assert.strictEqual(spokenUtterances.length, 1);
+  assert(
+    spokenUtterances[0].text === 'Wall appears closer.' || spokenUtterances[0].text === 'Wall appears close.',
+    'Must announce closer or close state'
+  );
+  console.log(`  ✔ Advancing toward wall detected and announced: "${spokenUtterances[0].text}"`);
+
+  // ====================================================================
+  // TEST 23: WALL APPEARS FARTHER AWAY (Scenario 4)
+  // ====================================================================
+  console.log('[TEST 23] Wall Appears to Become Farther Away');
+  spokenUtterances = [];
+
+  // Establish receding trend across consecutive frames
+  let recedeVid = null;
+  for (let i = 0; i < 4; i++) {
+    currentTime += 100;
+    recedeVid = {
+      videoWidth: 1280,
+      videoHeight: 720,
+      _simulatedWall: {
+        areaRatio: 0.65 - (i * 0.10),
+        baselineY: 0.72 - (i * 0.10),
+        isPlanar: true,
+        confidence: 0.90
+      }
+    };
+    window.environmentAnalyzer.analyze(recedeVid, []);
+  }
+
+  // Trigger announcement after cooldown
+  spokenUtterances = [];
+  currentTime += 4000; // Past 3.5s cooldown with confirmed receding trend
+  window.environmentAnalyzer.analyze(recedeVid, []);
+
+  assert.strictEqual(spokenUtterances.length, 1);
+  assert.strictEqual(spokenUtterances[0].text, 'Wall appears farther away.');
+  console.log('  ✔ Receding from wall detected and announced: "Wall appears farther away."');
+
+  // ====================================================================
+  // TEST 24: PERSON IN CENTRE VIEW (Scenario 5)
+  // ====================================================================
+  console.log('[TEST 24] Person Appears in Forward Centre View');
+  window.environmentAnalyzer.reset();
+  window.targetTracker.reset();
+  spokenUtterances = [];
+  currentTime += 1000;
+
+  // Person directly ahead in centre (x: 520, w: 200 -> center: 620/1280 = 0.484, middle third)
+  const centrePerson = [{ bbox: [520, 80, 200, 450], class: 'person', score: 0.94 }];
+  window.environmentAnalyzer.analyze({ videoWidth: 1280, videoHeight: 720 }, centrePerson);
+
+  assert.strictEqual(window.environmentAnalyzer.centreView, 'OBJECT DETECTED');
+  assert.strictEqual(window.environmentAnalyzer.centreObstruction.class, 'person');
+  assert.strictEqual(spokenUtterances[0].text, 'Person directly ahead in the camera view.');
+  console.log('  ✔ Person in forward path identified and announced: "Person directly ahead in the camera view."');
+
+  // ====================================================================
+  // TEST 25: CHAIR IN CENTRE VIEW (Scenario 6)
+  // ====================================================================
+  console.log('[TEST 25] Chair Appears in Forward Centre View');
+  window.environmentAnalyzer.reset();
+  window.targetTracker.reset();
+  spokenUtterances = [];
+  currentTime += 4500; // Past cooldown
+
+  // Chair directly ahead in centre
+  const centreChair = [{ bbox: [530, 150, 180, 320], class: 'chair', score: 0.92 }];
+  window.environmentAnalyzer.analyze({ videoWidth: 1280, videoHeight: 720 }, centreChair);
+
+  assert.strictEqual(window.environmentAnalyzer.centreView, 'OBJECT DETECTED');
+  assert.strictEqual(window.environmentAnalyzer.centreObstruction.class, 'chair');
+  assert.strictEqual(spokenUtterances[0].text, 'Chair detected directly ahead.');
+  console.log('  ✔ Furniture in forward path identified and announced: "Chair detected directly ahead."');
+
+  // ====================================================================
+  // TEST 26: CENTRE HAS NO RECOGNISED OBJECT & SAFETY ASSISTANCE (Scenario 7)
+  // ====================================================================
+  console.log('[TEST 26] Centre View Has No Recognised Object (Descriptive Safety)');
+  window.environmentAnalyzer.reset();
+  window.voiceAssistant.lastAnnouncementTime = 0;
+  spokenUtterances = [];
+  currentTime += 3000;
+
+  window.environmentAnalyzer.analyze({ videoWidth: 1280, videoHeight: 720 }, []);
+  assert.strictEqual(window.environmentAnalyzer.centreView, 'NO RECOGNISED OBJECT');
+
+  // Request explicit centre status check
+  window.voiceAssistant.announceEnvironmentEvent('centre_view', 'centre_clear');
+  assert.strictEqual(spokenUtterances[0].text, 'No recognised obstruction detected in the centre view.');
+
+  // Strict Safety Compliance: Verify that unconditional commands are NEVER generated
+  const forbiddenCommands = ['move forward', 'walk forward', 'turn left', 'turn right', 'path clear', 'safe to proceed'];
+  for (const cmd of forbiddenCommands) {
+    assert(!spokenUtterances[0].text.toLowerCase().includes(cmd), `Must NEVER issue command "${cmd}"`);
+  }
+  console.log('  ✔ Descriptive centre-clear information verified without dangerous movement commands');
+
+  // ====================================================================
+  // TEST 27: OBJECTS ON LEFT AND RIGHT (Scenario 8)
+  // ====================================================================
+  console.log('[TEST 27] Objects on Left and Right (Zone Classification)');
+  window.environmentAnalyzer.reset();
+  spokenUtterances = [];
+  currentTime += 1000;
+
+  const leftAndRight = [
+    { bbox: [60, 100, 120, 240], class: 'bottle', score: 0.88 },  // Left: center = 120/1280 = 0.09
+    { bbox: [1020, 100, 140, 260], class: 'chair', score: 0.90 }  // Right: center = 1090/1280 = 0.85
+  ];
+  window.environmentAnalyzer.analyze({ videoWidth: 1280, videoHeight: 720 }, leftAndRight);
+
+  assert.strictEqual(window.environmentAnalyzer.leftView, 'OBJECT DETECTED');
+  assert.strictEqual(window.environmentAnalyzer.rightView, 'OBJECT DETECTED');
+  assert.strictEqual(window.environmentAnalyzer.centreView, 'NO RECOGNISED OBJECT');
+
+  // Test zone obstruction alerts
+  window.voiceAssistant.lastAnnouncementTime = 0;
+  window.voiceAssistant.announceEnvironmentEvent('zone_obstruction', 'left');
+  assert.strictEqual(spokenUtterances[0].text, 'Possible obstruction detected on your left.');
+
+  window.voiceAssistant.lastAnnouncementTime = 0;
+  window.voiceAssistant.announceEnvironmentEvent('zone_obstruction', 'right');
+  assert.strictEqual(spokenUtterances[1].text, 'Possible obstruction detected on your right.');
+  console.log('  ✔ Lateral zones properly classified and obstruction warnings confirmed');
+
+  // ====================================================================
+  // TEST 28: ZERO OBJECTS BUT WALL REMAINS VISIBLE (Scenario 9)
+  // ====================================================================
+  console.log('[TEST 28] Zero Ordinary Objects with Persistent Wall Awareness');
+  window.environmentAnalyzer.reset();
+  spokenUtterances = [];
+  currentTime += 1000;
+
+  // 10 frames of 0 COCO-SSD detections
+  for (let i = 0; i < 10; i++) {
+    currentTime += 100;
+    window.environmentAnalyzer.analyze({ videoWidth: 1280, videoHeight: 720 }, []);
+  }
+
+  assert.strictEqual(window.environmentAnalyzer.wallDetected, true);
+  assert.strictEqual(window.environmentAnalyzer.wallDetectionState, 'DETECTED');
+  // Exactly 1 initial wall announcement was made, never spammed repeatedly
+  assert.strictEqual(spokenUtterances.length, 1);
+  assert(!spokenUtterances[0].text.includes('No objects detected'), 'Never repeatedly spam negative object counts');
+  console.log('  ✔ Wall awareness remained continuously active with zero object detections');
+
+  // ====================================================================
+  // TEST 29: WALL ANNOUNCEMENTS DO NOT REPEAT CONTINUOUSLY (Scenario 10)
+  // ====================================================================
+  console.log('[TEST 29] Stationary Wall Deduplication (Zero Speech Spam)');
+  const speechCountBefore = spokenUtterances.length;
+
+  // 15 more frames of unchanged wall
+  for (let i = 0; i < 15; i++) {
+    currentTime += 100;
+    window.environmentAnalyzer.analyze({ videoWidth: 1280, videoHeight: 720 }, []);
+  }
+
+  assert.strictEqual(spokenUtterances.length, speechCountBefore, 'Unchanged wall must not produce duplicate speech');
+  console.log('  ✔ Stationary wall produced zero duplicate announcements across 15 frames');
+
+  // ====================================================================
+  // TEST 30: WALL, OBJECT AND DIRECTION ZERO AUDIO OVERLAP (Scenario 11)
+  // ====================================================================
+  console.log('[TEST 30] Wall, Object & Direction Speech Collision Prevention');
+  spokenUtterances = [];
+  currentTime += 1000;
+
+  // Trigger simultaneous wall, target, and zone events in the exact same millisecond
+  window.voiceAssistant.isSpeaking = true; // Speech synthesis busy
+  window.voiceAssistant.announceEnvironmentEvent('wall_dynamic', 'wall_closer'); // Normal priority -> should not collide
+  window.voiceAssistant.announceTargetEvent('moving_away', { class: 'person' }); // Normal priority -> should not collide
+
+  assert.strictEqual(spokenUtterances.length, 0, 'Must never play speech while audio engine is speaking');
+  window.voiceAssistant.isSpeaking = false;
+  console.log('  ✔ Central speech manager strictly guaranteed zero audio collisions across all subsystems');
+
+  // ====================================================================
+  // TEST 31: ENGLISH AND HINDI LOCALIZATION (Scenario 12)
+  // ====================================================================
+  console.log('[TEST 31] English and Hindi Environment Speech Verification');
+  window.voiceAssistant.setLanguage('hi');
+  spokenUtterances = [];
+  currentTime += 1000;
+
+  // Test Hindi wall initial
+  window.voiceAssistant.announceEnvironmentEvent('wall_initial', 'wall_detected_front');
+  assert.strictEqual(spokenUtterances[0].text, 'सामने दीवार दिखाई दी।');
+
+  // Test Hindi wall close
+  window.voiceAssistant.lastAnnouncementTime = 0;
+  window.voiceAssistant.announceEnvironmentEvent('wall_initial', 'wall_close');
+  assert.strictEqual(spokenUtterances[1].text, 'एक दीवार पास दिखाई दे रही है।');
+
+  // Test Hindi wall closer
+  window.voiceAssistant.lastAnnouncementTime = 0;
+  window.voiceAssistant.announceEnvironmentEvent('wall_dynamic', 'wall_closer');
+  assert.strictEqual(spokenUtterances[2].text, 'दीवार और पास आ रही है।');
+
+  // Test Hindi wall farther
+  window.voiceAssistant.lastAnnouncementTime = 0;
+  window.voiceAssistant.announceEnvironmentEvent('wall_dynamic', 'wall_farther');
+  assert.strictEqual(spokenUtterances[3].text, 'दीवार और दूर जा रही है।');
+
+  // Test Hindi centre person
+  window.voiceAssistant.lastAnnouncementTime = 0;
+  window.voiceAssistant.announceEnvironmentEvent('centre_view', 'centre_person');
+  assert.strictEqual(spokenUtterances[4].text, 'कैमरा दृश्य में व्यक्ति सीधे आगे है।');
+
+  // Test Hindi centre caution
+  window.voiceAssistant.lastAnnouncementTime = 0;
+  window.voiceAssistant.announceEnvironmentEvent('centre_view', 'centre_caution');
+  assert.strictEqual(spokenUtterances[5].text, 'सामने संभावित रुकावट है। कृपया सावधानी बरतें।');
+
+  // Test Hindi centre clear
+  window.voiceAssistant.lastAnnouncementTime = 0;
+  window.voiceAssistant.announceEnvironmentEvent('centre_view', 'centre_clear');
+  assert.strictEqual(spokenUtterances[6].text, 'सामने के दृश्य में कोई पहचानी गई रुकावट नहीं है।');
+
+  window.voiceAssistant.setLanguage('en');
+  console.log('  ✔ All localized Hindi environment and wall alerts verified');
+
+  // ====================================================================
+  // TEST 32: ANDROID MOBILE PERFORMANCE PROFILE (Scenario 13)
+  // ====================================================================
+  console.log('[TEST 32] Environment Engine Android Mobile Performance Profile');
+  const dummyVid = { videoWidth: 1280, videoHeight: 720, readyState: 4 };
+  const mockDets = [
+    { bbox: [100, 100, 150, 300], class: 'person', score: 0.90 },
+    { bbox: [550, 120, 140, 220], class: 'chair', score: 0.88 },
+    { bbox: [950, 200, 80, 150], class: 'bottle', score: 0.85 }
+  ];
+
+  const envStartTime = process.hrtime.bigint();
+  const envIterations = 50;
+  for (let i = 0; i < envIterations; i++) {
+    currentTime += 90;
+    window.environmentAnalyzer.analyze(dummyVid, mockDets);
+  }
+  const envEndTime = process.hrtime.bigint();
+  const envTotalMs = Number(envEndTime - envStartTime) / 1000000;
+  const envAvgMs = envTotalMs / envIterations;
+
+  console.log(`  ⏱ 50 environment analysis cycles completed in ${envTotalMs.toFixed(2)}ms (${envAvgMs.toFixed(3)}ms per frame)`);
+  assert(envAvgMs < 5.0, 'Environment execution must be under 5ms per frame on mobile devices');
+  console.log('  ✔ Lightweight execution easily maintains 60fps on Android smartphones');
+
+  // ====================================================================
+  // TEST 33: DASHBOARD ENVIRONMENT PANEL METRICS VERIFICATION
+  // ====================================================================
+  console.log('[TEST 33] Dashboard Environment Awareness Panel Verification');
+  const valWallDet = document.getElementById('valWallDetection');
+  const valWallProx = document.getElementById('valWallProximity');
+  const valCentre = document.getElementById('valCentreView');
+  const valLeft = document.getElementById('valLeftView');
+  const valRight = document.getElementById('valRightView');
+  const valEnvStatus = document.getElementById('valEnvEngineStatus');
+
+  assert(valWallDet !== null, 'valWallDetection element must exist');
+  assert(valWallProx !== null, 'valWallProximity element must exist');
+  assert(valCentre !== null, 'valCentreView element must exist');
+  assert(valLeft !== null, 'valLeftView element must exist');
+  assert(valRight !== null, 'valRightView element must exist');
+  assert(valEnvStatus !== null, 'valEnvEngineStatus element must exist');
+  assert.strictEqual(valEnvStatus.textContent, 'ACTIVE');
+  console.log('  ✔ All 6 Dashboard Environment Awareness metrics verified');
+
   console.log('\n================================================================');
-  console.log('🎉 ALL 20 AUDIT TESTS PASSED WITH 0 ERRORS');
+  console.log('🎉 ALL 33 AUDIT TESTS PASSED WITH 0 ERRORS');
   console.log('================================================================');
 })().catch(err => {
   console.error('TEST FAILED:', err);

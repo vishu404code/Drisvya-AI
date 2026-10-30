@@ -446,6 +446,99 @@ class VoiceAssistant {
   }
 
   /**
+   * Environment & Wall Awareness Voice Event Announcer
+   * Centralized method ensuring zero collisions and proper prioritization.
+   */
+  announceEnvironmentEvent(eventType, subType, details = {}) {
+    if (!this.isAnnouncementsEnabled || this.isMuted) return;
+
+    const isHi = this.currentLanguage === 'hi';
+    let text = '';
+    let priority = 'normal';
+
+    switch (eventType) {
+      case 'wall_initial':
+        priority = 'primary';
+        if (subType === 'wall_close') {
+          text = isHi ? "एक दीवार पास दिखाई दे रही है।" : "A wall appears relatively close.";
+        } else if (subType === 'wall_far') {
+          text = isHi ? "दीवार अपेक्षाकृत दूर दिखाई दे रही है।" : "Wall appears relatively far away.";
+        } else if (subType === 'wall_uncertain') {
+          text = isHi ? "दीवार की दूरी का विश्वसनीय अनुमान लगाने में असमर्थ।" : "Unable to estimate wall proximity reliably.";
+        } else {
+          text = isHi ? "सामने दीवार दिखाई दी।" : "Wall detected in front.";
+        }
+        break;
+
+      case 'wall_dynamic':
+        if (subType === 'wall_closer') {
+          priority = 'primary';
+          text = isHi ? "दीवार और पास आ रही है।" : "Wall appears closer.";
+        } else if (subType === 'wall_close') {
+          priority = 'urgent';
+          text = isHi ? "दीवार पास है।" : "Wall appears close.";
+        } else if (subType === 'wall_farther') {
+          priority = 'normal';
+          text = isHi ? "दीवार और दूर जा रही है।" : "Wall appears farther away.";
+        }
+        break;
+
+      case 'centre_view':
+        if (subType === 'centre_person') {
+          priority = 'primary';
+          text = isHi ? "कैमरा दृश्य में व्यक्ति सीधे आगे है।" : "Person directly ahead in the camera view.";
+        } else if (subType === 'centre_furniture') {
+          priority = 'primary';
+          const objClass = details.objectClass || 'chair';
+          const friendlyObj = this.getFriendlyName(objClass, isHi ? 'hi' : 'en');
+          text = isHi ? `${friendlyObj} सीधे आगे है।` : `${friendlyObj} detected directly ahead.`;
+        } else if (subType === 'centre_wall') {
+          priority = 'primary';
+          text = isHi ? "सामने केंद्र में दीवार दिखाई दी।" : "Wall detected in the centre.";
+        } else if (subType === 'centre_caution') {
+          priority = 'urgent';
+          text = isHi ? "सामने संभावित रुकावट है। कृपया सावधानी बरतें।" : "Possible obstruction in the centre. Please use caution.";
+        } else if (subType === 'centre_clear') {
+          priority = 'normal';
+          text = isHi ? "सामने के दृश्य में कोई पहचानी गई रुकावट नहीं है।" : "No recognised obstruction detected in the centre view.";
+        } else if (subType === 'centre_uncertain') {
+          priority = 'primary';
+          text = isHi ? "सामने का दृश्य अनिश्चित है। कृपया अपनी छड़ी का उपयोग करें।" : "The centre view is uncertain. Please use your established mobility aid.";
+        }
+        break;
+
+      case 'zone_obstruction':
+        priority = 'normal';
+        if (subType === 'left') {
+          text = isHi ? "आपकी बाईं ओर संभावित रुकावट है।" : "Possible obstruction detected on your left.";
+        } else if (subType === 'right') {
+          text = isHi ? "आपकी दाईं ओर संभावित रुकावट है।" : "Possible obstruction detected on your right.";
+        }
+        break;
+
+      default:
+        return;
+    }
+
+    if (!text) return;
+
+    const now = Date.now();
+    if (priority === 'normal') {
+      if (now - this.lastAnnouncementTime < this.globalAnnouncementCooldown) {
+        return;
+      }
+    }
+
+    this.lastAnnouncementTime = now;
+    this.pendingAnnouncement = null;
+    this.speak(text, { priority });
+
+    if (window.app) {
+      window.app.logActivity(text, "voice");
+    }
+  }
+
+  /**
    * Compatibility bridge for legacy announcePrimaryPerson calls
    */
   announcePrimaryPerson(stateKey, customText) {

@@ -1798,3 +1798,22 @@
   flex-shrink: 0;
   margin-top: 1px;
 }
+
+/* ==========================================================================
+   Environment Awareness & Wall Detection Card
+   ========================================================================== */
+.environment-card {
+  border-color: rgba(56, 189, 248, 0.35);
+}
+
+.env-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+@media (min-width: 640px) {
+  .env-metrics-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
