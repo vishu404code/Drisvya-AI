@@ -503,15 +503,18 @@ class CameraController {
     const people = predictions.filter(p => p.class === 'person');
     const vehicles = predictions.filter(p => ['car', 'bus', 'truck', 'motorcycle', 'bicycle', 'train'].includes(p.class));
 
-    // Find nearest / largest object in view
+    // Find nearest / primary target in view
     let nearestText = "None within range";
-    if (predictions.length > 0) {
-      // Sort by bounding box area (largest relative object is nearest to camera)
+    const tracker = window.targetTracker || window.primaryPersonTracker;
+    if (tracker && tracker.primaryTarget) {
+      const t = tracker.primaryTarget;
+      const pos = t.spatial ? t.spatial.position : 'Centre';
+      nearestText = `${t.class.toUpperCase()} #${t.id} (${pos} · ${t.proximityState || 'In view'})`;
+    } else if (predictions.length > 0) {
       const sortedByArea = [...predictions].sort((a, b) => (b.bbox[2] * b.bbox[3]) - (a.bbox[2] * a.bbox[3]));
       const top = sortedByArea[0];
       const posLabel = top.spatial ? top.spatial.position : 'Centre';
-      const proxLabel = top.proximity ? top.proximity.level : 'Medium';
-      nearestText = `${top.class.toUpperCase()} (${posLabel} · ${proxLabel})`;
+      nearestText = `${top.class.toUpperCase()} (${posLabel})`;
     }
 
     this.detections = {
@@ -521,20 +524,15 @@ class CameraController {
       nearest: nearestText
     };
 
-    this.updateDetectionUI();
-    this.renderLiveDetectionList(predictions);
-
-    // Update Primary Person Tracker & Proximity Estimator
-    if (window.primaryPersonTracker) {
+    // Update Central Unified Target Tracker
+    if (tracker) {
       const vW = (this.videoEl && this.videoEl.videoWidth) || 1280;
       const vH = (this.videoEl && this.videoEl.videoHeight) || 720;
-      window.primaryPersonTracker.update(predictions, vW, vH);
+      tracker.update(predictions, vW, vH);
     }
-    
-    // Delegate intelligent voice narration & urgent obstacle alerts to VoiceAssistant
-    if (window.voiceAssistant && window.voiceAssistant.handleDetections) {
-      window.voiceAssistant.handleDetections(predictions);
-    }
+
+    this.updateDetectionUI();
+    this.renderLiveDetectionList(predictions);
   }
 
   /**
@@ -625,11 +623,16 @@ class CameraController {
     const offsetX = (containerW - renderW) / 2;
     const offsetY = (containerH - renderH) / 2;
 
-    const tracker = window.primaryPersonTracker;
-    const isPrimaryLocked = tracker && tracker.lockStatus === 'locked';
+    const tracker = window.targetTracker || window.primaryPersonTracker;
+    const isPrimaryLocked = tracker && tracker.lockStatus === 'locked' && tracker.primaryTarget;
 
-    predictions.forEach(pred => {
-      const [bx, by, bw, bh] = pred.bbox;
+    // Use tracked objects if available, otherwise raw predictions
+    const objectsToRender = (tracker && tracker.activeObjectsList && tracker.activeObjectsList.length > 0)
+      ? tracker.activeObjectsList
+      : predictions;
+
+    objectsToRender.forEach(obj => {
+      const [bx, by, bw, bh] = obj.bbox;
 
       // Projected coordinates on displayed screen
       const drawX = bx * scale + offsetX;
@@ -637,19 +640,19 @@ class CameraController {
       const drawW = bw * scale;
       const drawH = bh * scale;
 
-      const isPrimary = isPrimaryLocked && (pred.isPrimaryPerson || (tracker.lockedPersonId && pred.id === tracker.lockedPersonId));
+      const isPrimary = isPrimaryLocked && (obj.isPrimaryTarget || (tracker.primaryTarget && obj.id === tracker.primaryTarget.id));
 
-      // Color coding: Gold for locked primary person, Cyan for objects, Green for other people, Amber for vehicles
+      // Color coding: Gold for primary target, Cyan for objects, Green for people, Amber for vehicles
       let strokeColor = '#45d9ed';
       if (isPrimary) strokeColor = '#f59e0b';
-      else if (pred.class === 'person') strokeColor = '#34d399';
-      else if (['car', 'bus', 'truck', 'motorcycle', 'bicycle'].includes(pred.class)) strokeColor = '#fbbf24';
+      else if (obj.class === 'person') strokeColor = '#34d399';
+      else if (['car', 'bus', 'truck', 'motorcycle', 'bicycle'].includes(obj.class)) strokeColor = '#fbbf24';
 
       // Draw bounding rectangle
       this.ctx.strokeStyle = strokeColor;
-      this.ctx.lineWidth = isPrimary ? 3.5 : 2.5;
+      this.ctx.lineWidth = isPrimary ? 3.5 : 2.0;
       this.ctx.shadowColor = strokeColor;
-      this.ctx.shadowBlur = isPrimary ? 16 : 8;
+      this.ctx.shadowBlur = isPrimary ? 16 : 6;
       this.ctx.strokeRect(drawX, drawY, drawW, drawH);
       if (isPrimary) {
         this.ctx.lineWidth = 1;
@@ -659,7 +662,7 @@ class CameraController {
 
       // Corner target brackets
       const cornerLen = Math.min(16, drawW / 3, drawH / 3);
-      this.ctx.lineWidth = isPrimary ? 5 : 4;
+      this.ctx.lineWidth = isPrimary ? 5 : 3.5;
       this.ctx.beginPath();
       // TL
       this.ctx.moveTo(drawX, drawY + cornerLen);
@@ -680,17 +683,19 @@ class CameraController {
       this.ctx.stroke();
 
       // Label Pill
-      const score = Math.round(pred.score * 100);
-      const pos = pred.spatial ? pred.spatial.position.toUpperCase() : 'CENTRE';
-      let labelText = `${pred.class.toUpperCase()} ${score}% · ${pos}`;
+      const score = Math.round((obj.score || 0.85) * 100);
+      const pos = obj.spatial ? obj.spatial.position.toUpperCase() : 'CENTRE';
+      const idPrefix = obj.id ? `#${obj.id} ` : '';
+      const proxState = obj.proximityState || (obj.proximity ? obj.proximity.level : 'IN VIEW');
+
+      let labelText = `${idPrefix}${obj.class.toUpperCase()} ${score}% · ${pos}`;
       if (isPrimary) {
-        const prox = (tracker.lockedPerson && tracker.lockedPerson.proximity && tracker.lockedPerson.proximity.level) || 'PROXIMITY';
-        labelText = `★ PRIMARY PERSON [LOCKED] · ${prox.toUpperCase()}`;
+        labelText = `★ TARGET ${idPrefix}${obj.class.toUpperCase()} · ${proxState}`;
       }
 
       this.ctx.font = isPrimary 
         ? '800 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-        : '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        : '700 10.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
       const textMetrics = this.ctx.measureText(labelText);
       const pillW = textMetrics.width + 16;
       const pillH = 22;
@@ -710,9 +715,9 @@ class CameraController {
       this.ctx.fillText(labelText, drawX + 8, pillY + 15);
     });
 
-    // If locked person is temporarily lost within recovery window, draw alert banner at top
+    // If target is temporarily lost within recovery window, draw alert banner at top
     if (tracker && tracker.lockStatus === 'temporarily_lost') {
-      const bannerText = "⚠ PRIMARY PERSON TEMPORARILY LOST — REACQUIRING...";
+      const bannerText = "⚠ TARGET TEMPORARILY LOST — REACQUIRING...";
       this.ctx.font = '800 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
       const bMetrics = this.ctx.measureText(bannerText);
       const bW = bMetrics.width + 24;

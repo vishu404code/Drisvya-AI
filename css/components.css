@@ -1657,10 +1657,26 @@
   text-shadow: 0 0 8px rgba(245, 158, 11, 0.4);
 }
 
+.proximity-badge.closer {
+  color: #fb923c;
+  font-weight: 900;
+  text-shadow: 0 0 8px rgba(251, 146, 60, 0.4);
+}
+
 .proximity-badge.close {
   color: #ef4444;
   font-weight: 900;
   text-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+}
+
+.proximity-badge.moving-away {
+  color: #38bdf8;
+  font-weight: 700;
+}
+
+.proximity-badge.stable {
+  color: #a7f3d0;
+  font-weight: 700;
 }
 
 .proximity-badge.uncertain {

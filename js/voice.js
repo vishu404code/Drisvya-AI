@@ -1,18 +1,13 @@
 /**
- * DRISVYA - Intelligent Voice Announcement Engine
- * Full integration with SpeechSynthesis API for Android smartphones & Bluetooth audio.
+ * DRISVYA - Central Intelligent Speech Manager
+ * Unified audio output and speech synthesis engine for Android and web.
  * Features:
- * - Robust multi-frame persistence tracking (consecutive frame confirmation)
- * - 15-second per-object announcement cooldown
- * - Continuous visibility protection (no repeated announcements while continuously visible)
- * - 3-second minimum absence threshold required before considering an object a new appearance
- * - Spatial zone continuity (moving between Left, Centre, Right does NOT re-trigger announcement)
- * - Single-item freshness speech queue (no overlapping speech; stale announcements discarded)
- * - Master Object Announcements toggle (ON/OFF) with immediate speech cancellation
- * - Announcement volume control
- * - Three-state speech status indicator: Speaking / Waiting / Disabled
- * - English and Hindi voice selection with natural phrasing
- * - Preserves functional Test Voice button
+ * - Single-queue speech execution (zero audio collisions / speech overlap)
+ * - Intelligent target event narration with English and Hindi support
+ * - Urgent preemption (close obstacles & target switching can preempt non-urgent speech)
+ * - State-change gating & deduplication (no repetitive spam on unchanged states)
+ * - Strict cancellation on announcements OFF or camera stop
+ * - Full audio route, volume, speech rate, and Test Voice support
  */
 
 const COCO_CLASS_DICTIONARY = {
@@ -58,29 +53,21 @@ class VoiceAssistant {
     this.speechPitch = 1.0;
     this.speechVolume = (typeof localStorage !== 'undefined' && parseFloat(localStorage.getItem('drisvya_volume'))) || 1.0;
 
-    // Advanced Duplicate Prevention & Tracking State
-    this.trackedObjects = new Map(); // id -> { id, class, bbox, position, consecutiveFrames, firstSeenTime, lastSeenTime, lastAnnouncedTime, announcedInCurrentAppearance, absentSince }
-    this.nextTrackedId = 1;
-    this.requiredConsecutiveFrames = 2; // Must appear in at least 2 consecutive frames for stable confirmation
-    this.objectCooldown = 15000; // Default 15 seconds per-object announcement cooldown
-    this.absenceThreshold = 3000; // Must be absent for at least 3 seconds before being considered a new appearance
-    this.globalAnnouncementCooldown = 2200; // 2.2 seconds minimum gap between separate speech utterances
-    this.lastAnnouncementTime = 0;
-    this.pendingAnnouncement = null; // Single-item freshness queue: { candidate, text, timestamp }
-
-    // Speech synthesis state
+    // Single Central Speech State
     this.isSpeaking = false;
     this.isUrgentSpeaking = false;
-    this.isPrimarySpeaking = false;
-    this.activeUtterance = null; // Retain reference to prevent Android Chromium V8 garbage collection mid-speech
-    this.isAudioUnlocked = false; // Audio unlock flag
+    this.activeUtterance = null;
+    this.isAudioUnlocked = false;
+
+    this.lastAnnouncementTime = 0;
+    this.globalAnnouncementCooldown = 2400; // 2.4s minimum gap between non-urgent speech
+    this.pendingAnnouncement = null;
 
     this.lastAnnouncement = {
       en: "DRISVYA assistive vision platform is ready in standby. Tap Start Assistance to begin.",
       hi: "दृश्या विज़ुअल सहायता मंच स्टैंडबाय पर तैयार है। शुरू करने के लिए स्टार्ट सहायता पर टैप करें।"
     };
 
-    // Bluetooth & system audio routing status
     this.audioRoute = 'System Audio Output';
     this.availableVoices = [];
     this.init();
@@ -98,16 +85,10 @@ class VoiceAssistant {
       this.synth.onvoiceschanged = () => this.loadVoices();
     }
 
-    // Inspect audio output devices for Bluetooth headsets
     this.checkAudioOutputDevices();
-
-    // Initial status: Waiting (if enabled and unmuted) or Disabled
     this.updateStatusUI(this.isAnnouncementsEnabled && !this.isMuted ? 'Waiting' : 'Disabled');
   }
 
-  /**
-   * Unlock SpeechSynthesis and Web Audio upon user gesture (Crucial for Android Chrome)
-   */
   unlockAudio() {
     if (this.isAudioUnlocked) return;
     this.isAudioUnlocked = true;
@@ -137,9 +118,6 @@ class VoiceAssistant {
     }
   }
 
-  /**
-   * Inspect audio routing (Bluetooth earphones / wired headsets)
-   */
   async checkAudioOutputDevices() {
     if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
     try {
@@ -159,7 +137,6 @@ class VoiceAssistant {
       } else {
         this.audioRoute = 'System Audio (Bluetooth Compatible)';
       }
-
       this.updateAudioRouteUI();
     } catch (e) {
       this.audioRoute = 'System Audio Output';
@@ -174,9 +151,6 @@ class VoiceAssistant {
     }
   }
 
-  /**
-   * Select best natural voice for current language
-   */
   getBestVoice(langCode) {
     if (!this.availableVoices.length) {
       this.loadVoices();
@@ -250,13 +224,11 @@ class VoiceAssistant {
       this.updateStatusUI(this.isMuted ? 'Disabled' : 'Waiting');
     }
 
-    // Sync UI checkbox if present
     const toggleEl = document.getElementById('toggleObjectAnnouncements');
     if (toggleEl && toggleEl.checked !== this.isAnnouncementsEnabled) {
       toggleEl.checked = this.isAnnouncementsEnabled;
     }
 
-    // Sync accessibility settings toggle
     if (window.a11yManager && window.a11yManager.preferences.voiceAlerts !== this.isAnnouncementsEnabled) {
       window.a11yManager.preferences.voiceAlerts = this.isAnnouncementsEnabled;
       window.a11yManager.updateToggleUI('toggleVoiceAlerts', this.isAnnouncementsEnabled);
@@ -283,34 +255,6 @@ class VoiceAssistant {
     }
   }
 
-  /**
-   * Natural English and Hindi screen zone sentence formatting
-   * Screen positions: Left, Centre, Right
-   */
-  formatPositionSentence(name, position, lang) {
-    if (lang === 'hi') {
-      if (position === 'Left') {
-        return `बाईं ओर ${name} है।`;
-      } else if (position === 'Right') {
-        return `दाईं ओर ${name} है।`;
-      } else if (position === 'Centre') {
-        return `आपके सामने ${name} है।`;
-      } else {
-        return `${name} दिखाई दे रहा है।`;
-      }
-    } else {
-      if (position === 'Left') {
-        return `${name} on your left.`;
-      } else if (position === 'Right') {
-        return `${name} on your right.`;
-      } else if (position === 'Centre') {
-        return `${name} in front of you.`;
-      } else {
-        return `${name} detected.`;
-      }
-    }
-  }
-
   getFriendlyName(rawClass, lang) {
     const key = (rawClass || '').toLowerCase().trim();
     if (COCO_CLASS_DICTIONARY[key]) {
@@ -320,217 +264,128 @@ class VoiceAssistant {
   }
 
   /**
-   * Frame-to-frame matching to track an object instance across consecutive frames
+   * Primary Target Voice Event Announcer
+   * All speech notifications pass through this single centralized method.
    */
-  matchDetectionToTracked(pred) {
-    const predClass = (pred.class || '').toLowerCase();
-    const [px, py, pw, ph] = pred.bbox;
-    const pCenterX = px + pw / 2;
-    const pCenterY = py + ph / 2;
-
-    let bestMatch = null;
-    let minDistance = Infinity;
-
-    for (const [id, tracked] of this.trackedObjects.entries()) {
-      if (tracked.class !== predClass) continue;
-
-      const [tx, ty, tw, th] = tracked.bbox;
-      const tCenterX = tx + tw / 2;
-      const tCenterY = ty + th / 2;
-
-      const dx = pCenterX - tCenterX;
-      const dy = pCenterY - tCenterY;
-      const dist = Math.hypot(dx, dy);
-
-      if (dist < minDistance) {
-        minDistance = dist;
-        bestMatch = tracked;
-      }
-    }
-
-    // Match if distance is within reasonable movement bounds (< 700px)
-    if (bestMatch && minDistance < 700) {
-      return bestMatch;
-    }
-
-    return null;
-  }
-
-  /**
-   * Process actual predictions from live detection stream
-   * - Tracks detected objects across consecutive frames
-   * - Enforces 15-second per-object announcement cooldown
-   * - Prevents repeated announcements while continuously visible
-   * - Requires at least 3 seconds of absence before treating as a new appearance
-   * - Zone shifts do NOT re-trigger speech
-   * - Discards stale announcements and ensures single non-overlapping speech queue
-   */
-  handleDetections(predictions = []) {
+  announceTargetEvent(eventType, target, extra = {}) {
     if (!this.isAnnouncementsEnabled || this.isMuted) return;
 
-    // Ordinary object detections yield to locked primary person
-    if (typeof window !== 'undefined' && window.primaryPersonTracker && window.primaryPersonTracker.lockStatus === 'locked') {
-      const prox = window.primaryPersonTracker.lockedPerson && window.primaryPersonTracker.lockedPerson.proximity
-        ? window.primaryPersonTracker.lockedPerson.proximity.level
-        : null;
-      if (prox === 'Close' || prox === 'Approaching') {
-        return; // Suppress ordinary announcements to give primary person top audio priority
-      }
+    const rawClass = (target && target.class) || 'object';
+    const isHi = this.currentLanguage === 'hi';
+    const name = this.getFriendlyName(rawClass, isHi ? 'hi' : 'en');
+
+    let text = '';
+    let priority = 'normal';
+
+    switch (eventType) {
+      case 'target_acquired':
+        text = isHi
+          ? `${name} दिखाई दिया। ट्रैकिंग शुरू हुई।`
+          : `${name} detected. Tracking started.`;
+        priority = 'primary';
+        break;
+
+      case 'approaching':
+        text = isHi
+          ? `${name} पास आ रहा है।`
+          : `${name} is getting closer.`;
+        priority = 'primary';
+        break;
+
+      case 'close':
+        text = isHi
+          ? `${name} पास है।`
+          : `${name} is close.`;
+        priority = 'urgent';
+        break;
+
+      case 'moving_away':
+        text = isHi
+          ? `${name} दूर जा रहा है।`
+          : `${name} is moving away.`;
+        priority = 'normal';
+        break;
+
+      case 'far':
+        text = isHi
+          ? `${name} दूर है।`
+          : `${name} is far away.`;
+        priority = 'normal';
+        break;
+
+      case 'target_switched':
+        text = isHi
+          ? `${name} अब सबसे नज़दीकी लक्ष्य है।`
+          : `${name} is now the closest estimated target.`;
+        priority = 'urgent';
+        break;
+
+      case 'uncertain':
+        text = isHi
+          ? `लक्ष्य ट्रैकिंग अनिश्चित है।`
+          : `Target tracking uncertain.`;
+        priority = 'normal';
+        break;
+
+      case 'target_lost':
+        text = isHi
+          ? `${name} अस्थायी रूप से खो गया है।`
+          : `${name} temporarily lost.`;
+        priority = 'urgent';
+        break;
+
+      case 'unlocked':
+        text = isHi
+          ? `लक्ष्य अनलॉक हो गया है।`
+          : `Target unlocked.`;
+        priority = 'primary';
+        break;
+
+      default:
+        return;
     }
+
+    if (!text) return;
 
     const now = Date.now();
-    const matchedTrackedIds = new Set();
-
-    // 1. Match or register detections in current frame
-    if (predictions && predictions.length > 0) {
-      predictions.forEach(pred => {
-        const pos = pred.spatial ? pred.spatial.position : 'Centre';
-        let tracked = this.matchDetectionToTracked(pred);
-
-        if (!tracked) {
-          // New object instance
-          const id = `obj_${pred.class}_${this.nextTrackedId++}`;
-          tracked = {
-            id,
-            class: (pred.class || '').toLowerCase(),
-            position: pos,
-            bbox: pred.bbox,
-            score: pred.score || 0,
-            consecutiveFrames: 1,
-            firstSeenTime: now,
-            lastSeenTime: now,
-            lastAnnouncedTime: 0,
-            announcedInCurrentAppearance: false,
-            absentSince: null
-          };
-          this.trackedObjects.set(id, tracked);
-        } else {
-          // Existing object tracked across frames
-          if (tracked.absentSince !== null) {
-            // Check if it was absent for at least 3 seconds
-            if (now - tracked.absentSince >= this.absenceThreshold) {
-              // It was gone for >= 3 seconds! Reset appearance state for a new appearance
-              tracked.announcedInCurrentAppearance = false;
-              tracked.consecutiveFrames = 1;
-            } else {
-              // Briefly absent (< 3s), maintain continuous appearance
-              tracked.consecutiveFrames++;
-            }
-            tracked.absentSince = null;
-          } else {
-            tracked.consecutiveFrames++;
-          }
-
-          tracked.bbox = pred.bbox;
-          tracked.score = pred.score || 0;
-          tracked.lastSeenTime = now;
-
-          // Update position (moving between Left/Centre/Right does NOT re-trigger announcement)
-          tracked.position = pos;
-        }
-
-        matchedTrackedIds.add(tracked.id);
-      });
-    }
-
-    // 2. Track absent objects
-    // An object is ONLY considered a new appearance after being absent for at least 3 seconds (3000ms)
-    for (const [id, tracked] of this.trackedObjects.entries()) {
-      if (!matchedTrackedIds.has(id)) {
-        if (tracked.absentSince === null) {
-          tracked.absentSince = now;
-        } else if (now - tracked.absentSince >= this.absenceThreshold) {
-          // Confirmed absent for >= 3 seconds
-          tracked.announcedInCurrentAppearance = false;
-          tracked.consecutiveFrames = 0;
-
-          // Prune very old entries after 45 seconds of continuous absence
-          if (now - tracked.absentSince > 45000) {
-            this.trackedObjects.delete(id);
-          }
-        }
+    // Normal priority events respect cooldown
+    if (priority === 'normal') {
+      if (now - this.lastAnnouncementTime < this.globalAnnouncementCooldown) {
+        return;
       }
     }
 
-    if (!predictions || predictions.length === 0) return;
-
-    // 3. Find candidates eligible for announcement:
-    // a. Must have appeared in at least requiredConsecutiveFrames (default 2)
-    // b. Must not already be announced during this continuous appearance
-    // c. Must have elapsed the 15-second per-object cooldown
-    const eligibleCandidates = [];
-    for (const [id, tracked] of this.trackedObjects.entries()) {
-      if (
-        matchedTrackedIds.has(id) &&
-        tracked.consecutiveFrames >= this.requiredConsecutiveFrames &&
-        !tracked.announcedInCurrentAppearance &&
-        (now - tracked.lastAnnouncedTime >= this.objectCooldown)
-      ) {
-        eligibleCandidates.push(tracked);
-      }
-    }
-
-    if (eligibleCandidates.length === 0) return;
-
-    // 4. Prioritize: sort by bounding box area descending (largest/most prominent first)
-    eligibleCandidates.sort((a, b) => {
-      const areaA = (a.bbox && a.bbox[2] * a.bbox[3]) || 0;
-      const areaB = (b.bbox && b.bbox[2] * b.bbox[3]) || 0;
-      return areaB - areaA;
-    });
-
-    const chosen = eligibleCandidates[0];
-    const friendlyName = this.getFriendlyName(chosen.class, this.currentLanguage);
-    const sentence = this.formatPositionSentence(friendlyName, chosen.position, this.currentLanguage);
-
-    // 5. Speech Queue & Non-Overlapping Execution
-    // If speech is already playing, do NOT interrupt!
-    if (this.isSpeaking || (this.synth && this.synth.speaking)) {
-      // Do not add identical announcements repeatedly
-      if (!this.pendingAnnouncement || this.pendingAnnouncement.text !== sentence) {
-        this.pendingAnnouncement = {
-          candidate: chosen,
-          text: sentence,
-          timestamp: now
-        };
-      }
-      return;
-    }
-
-    // If within global minimum gap (2.2s), queue it
-    if (now - this.lastAnnouncementTime < this.globalAnnouncementCooldown) {
-      if (!this.pendingAnnouncement || this.pendingAnnouncement.text !== sentence) {
-        this.pendingAnnouncement = {
-          candidate: chosen,
-          text: sentence,
-          timestamp: now
-        };
-      }
-      return;
-    }
-
-    // 6. Speak the chosen announcement
-    this.executeAnnouncement(chosen, sentence, now);
-  }
-
-  executeAnnouncement(candidate, sentence, timestamp) {
-    candidate.announcedInCurrentAppearance = true;
-    candidate.lastAnnouncedTime = timestamp;
-    this.lastAnnouncementTime = timestamp;
+    this.lastAnnouncementTime = now;
     this.pendingAnnouncement = null;
+    this.speak(text, { priority });
 
-    this.speak(sentence, { priority: 'normal' });
-
-    if (candidate.position === 'Centre' && window.a11yManager) {
-      window.a11yManager.vibrate(35);
-    }
     if (window.app) {
-      window.app.logActivity(sentence, "voice");
+      window.app.logActivity(text, "voice");
     }
   }
 
   /**
-   * Speak announcement with priority management & Android Chromium stability
+   * Compatibility bridge for legacy announcePrimaryPerson calls
+   */
+  announcePrimaryPerson(stateKey, customText) {
+    if (customText) {
+      this.speak(customText, { priority: 'primary' });
+      return;
+    }
+    const mapping = {
+      locked: 'target_acquired',
+      far: 'far',
+      approaching: 'approaching',
+      close: 'close',
+      lost: 'target_lost',
+      unlocked: 'unlocked'
+    };
+    const evt = mapping[stateKey] || stateKey;
+    this.announceTargetEvent(evt, { class: 'person' });
+  }
+
+  /**
+   * Central speech execution with preemption & non-overlapping guarantees
    */
   speak(text, options = {}) {
     if (!this.synth) return;
@@ -538,39 +393,31 @@ class VoiceAssistant {
 
     const priority = options.priority || 'normal';
 
-    // Announcements disabled check (unless forced by Test Voice or user action)
     if (!this.isAnnouncementsEnabled && !options.force) {
       return;
     }
-
     if (this.isMuted && !options.force) {
       return;
     }
 
-    // Urgent & Primary warnings interrupt lower-priority announcements
+    // Preemption handling
     if ((priority === 'urgent' || priority === 'primary') && this.synth.speaking) {
-      if (!this.isUrgentSpeaking && !(priority === 'primary' && this.isPrimarySpeaking)) {
+      if (!this.isUrgentSpeaking) {
         this.synth.cancel();
         this.isSpeaking = false;
-        this.isPrimarySpeaking = false;
         this.isUrgentSpeaking = false;
       } else {
-        // Already speaking an urgent or primary alert — avoid collision/overlap
-        return;
+        return; // Already speaking an urgent alert; do not collide
       }
     } else if (this.isSpeaking || this.synth.speaking) {
-      // Ordinary announcements must NEVER interrupt an announcement already playing
-      return;
+      return; // Non-urgent never interrupts
     }
 
-    // Announce to Screen Readers via ARIA live region
     this.announceToScreenReader(text);
-
-    // Save for Repeat Audio
     this.lastAnnouncement[this.currentLanguage] = text;
 
     const utterance = new SpeechSynthesisUtterance(text);
-    this.activeUtterance = utterance; // Prevent V8 garbage collection mid-speech
+    this.activeUtterance = utterance;
 
     const targetLang = options.lang || (this.currentLanguage === 'hi' ? 'hi-IN' : 'en-US');
     utterance.lang = targetLang;
@@ -585,8 +432,6 @@ class VoiceAssistant {
 
     if (priority === 'urgent') {
       this.isUrgentSpeaking = true;
-    } else if (priority === 'primary') {
-      this.isPrimarySpeaking = true;
     }
 
     utterance.onstart = () => {
@@ -598,21 +443,16 @@ class VoiceAssistant {
     const handleSpeechEnd = () => {
       this.isSpeaking = false;
       this.isUrgentSpeaking = false;
-      this.isPrimarySpeaking = false;
       this.activeUtterance = null;
       this.stopVisualizer();
 
-      // Check queued announcement (only play if fresh, < 3000ms old)
       if (this.pendingAnnouncement && this.isAnnouncementsEnabled && !this.isMuted) {
         const pending = this.pendingAnnouncement;
         this.pendingAnnouncement = null;
         const now = Date.now();
-        if (now - pending.timestamp < 3000 && pending.candidate) {
-          // Respect 15s cooldown on candidate
-          if (now - pending.candidate.lastAnnouncedTime >= this.objectCooldown) {
-            this.executeAnnouncement(pending.candidate, pending.text, now);
-            return;
-          }
+        if (now - pending.timestamp < 3000) {
+          this.speak(pending.text, { priority: pending.priority || 'normal' });
+          return;
         }
       }
 
@@ -636,62 +476,17 @@ class VoiceAssistant {
     }
   }
 
-  /**
-   * Primary Person Priority Voice Announcements
-   * Routes all locked person events with top audio priority through central Speech Manager
-   */
-  announcePrimaryPerson(stateKey, customText) {
-    if (!this.isAnnouncementsEnabled || this.isMuted) return;
-
-    const messages = {
-      en: {
-        locked: "Primary person detected.",
-        far: "Primary person is far away.",
-        approaching: "Primary person is getting closer.",
-        close: "Primary person is close.",
-        lost: "Primary person temporarily lost.",
-        unlocked: "Primary person unlocked."
-      },
-      hi: {
-        locked: "मुख्य व्यक्ति दिखाई दे रहा है।",
-        far: "मुख्य व्यक्ति दूर है।",
-        approaching: "मुख्य व्यक्ति पास आ रहा है।",
-        close: "मुख्य व्यक्ति पास है।",
-        lost: "मुख्य व्यक्ति अस्थायी रूप से खो गया है।",
-        unlocked: "मुख्य व्यक्ति अनलॉक हो गया है।"
-      }
-    };
-
-    const lang = this.currentLanguage === 'hi' ? 'hi' : 'en';
-    const text = customText || (messages[lang] && messages[lang][stateKey]) || (messages.en && messages.en[stateKey]);
-    if (!text) return;
-
-    const now = Date.now();
-    this.lastAnnouncementTime = now;
-
-    // Discard pending ordinary announcement
-    this.pendingAnnouncement = null;
-
-    // Close and lost events get highest urgent priority; other transitions get primary priority
-    const prio = (stateKey === 'close' || stateKey === 'lost') ? 'urgent' : 'primary';
-    this.speak(text, { priority: prio });
-
-    if (window.app) {
-      window.app.logActivity(text, "voice");
-    }
-  }
-
-  /**
-   * Clear pending queue and reset tracking
-   */
   clearQueue() {
     this.pendingAnnouncement = null;
-    this.trackedObjects.clear();
+    if (this.synth) {
+      this.synth.cancel();
+    }
+    this.isSpeaking = false;
+    this.isUrgentSpeaking = false;
+    this.stopVisualizer();
+    this.updateStatusUI(this.isAnnouncementsEnabled && !this.isMuted ? 'Waiting' : 'Disabled');
   }
 
-  /**
-   * Test Voice function (Allows user to verify audio and unlocks SpeechSynthesis)
-   */
   testVoice() {
     this.unlockAudio();
     const isHi = this.currentLanguage === 'hi';
@@ -737,9 +532,6 @@ class VoiceAssistant {
     if (visualizer) visualizer.classList.remove('speaking');
   }
 
-  /**
-   * Update Status UI indicator: Speaking / Waiting / Disabled
-   */
   updateStatusUI(statusText) {
     const statusEl = document.getElementById('voiceAssistantStatusText');
     const badgeEl = document.getElementById('voiceStatusBadge');

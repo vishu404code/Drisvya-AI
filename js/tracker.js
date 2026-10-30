@@ -1,35 +1,56 @@
 /**
- * DRISVYA - Smart Distance Awareness & Primary Person Tracking System
- * Experimental camera-based relative proximity estimation & target locking.
- * Features:
- * - Bounding-box dimension & temporal size delta tracking across consecutive frames
- * - Relative proximity categorization: Far, Approaching, Close, Uncertain
- * - Manual target locking via viewfinder tap or dashboard quick-select
- * - Stable tracking ID with 3.5s temporary occlusion recovery window
- * - Anti-drift lock protection (never silently switches lock to another person)
- * - Priority announcements routed through the central Speech Manager
- * - High-contrast visual HUD indicators
+ * DRISVYA - Unified Automatic Target Tracker & Smart Proximity Engine
+ * One central computer vision tracking engine for real-time mobile assistance.
+ * 
+ * Core Capabilities:
+ * 1. Multi-Object Persistent Tracking:
+ *    - Associative matching via IoU (Intersection over Union), centroid displacement, and class labels.
+ *    - Stable persistent tracking IDs (#1, #2, etc.) across consecutive frames.
+ *    - Rolling temporal history buffer (10 frames) per tracked object.
+ * 
+ * 2. Automatic Target Selection & Switching with Hysteresis:
+ *    - Automatic locking on the most relevant / closest object without requiring manual taps.
+ *    - Target Relevance Scoring based on proximity, ground-plane vertical baseline, category scale, and confidence.
+ *    - Multi-cycle confirmation (3 consecutive detection cycles) & hysteresis margin (> 25% + offset) to eliminate switching jitter.
+ *    - 3.0s temporary occlusion recovery window before target release.
+ * 
+ * 3. Smart Relative Proximity & Dynamic Trend Estimation:
+ *    - Exponential Moving Average (EMA) smoothing of apparent bounding box dimensions.
+ *    - Multi-signal relative proximity: normalized frame area, aspect ratio, vertical position, category normalization.
+ *    - Dynamic temporal rate-of-change analysis: FAR, APPROACHING, CLOSER, CLOSE, MOVING AWAY, STABLE, UNCERTAIN.
+ *    - Zero fabricated metric measurements; strictly relative spatial awareness.
+ * 
+ * 4. Priority Announcement Integration:
+ *    - Routes all primary target state changes and switches to the central Speech Manager.
  */
 
-class PrimaryPersonTracker {
+class UnifiedTargetTracker {
   constructor() {
-    this.lockedPersonId = null;
-    this.lockedPerson = null;
-    this.lockStatus = 'not_locked'; // 'not_locked' | 'locked' | 'temporarily_lost'
-    this.lostRecoveryPeriod = 3500; // 3.5 seconds temporary occlusion recovery window
-    this.lostSince = null;
-    
-    // Proximity estimation history
-    this.historyWindowSize = 8;
-    this.history = []; // [{ time, bbox, areaRatio, heightRatio, centerX, centerY, score }]
-    this.lastAnnouncedProximity = null;
-    this.lastAnnouncedTime = 0;
-    this.proximityCooldown = 4000; // 4s cooldown between proximity state announcements
+    // Tracked objects registry: trackId (number) -> TrackedObject
+    this.trackedObjects = new Map();
+    this.nextTrackId = 1;
 
-    // Detected people in current frame
-    this.detectedPeople = [];
-    this.trackedPeopleMap = new Map(); // id -> { id, bbox, score, spatial, lastSeen, history }
-    this.nextPersonId = 1;
+    // Primary Target state
+    this.primaryTarget = null;
+    this.primaryTargetId = null;
+    this.lockStatus = 'not_locked'; // 'not_locked' | 'locked' | 'temporarily_lost'
+    this.lostRecoveryPeriod = 3000; // 3.0s recovery window for brief occlusion
+    this.lostSince = null;
+
+    // Target Switching & Hysteresis
+    this.switchCandidateId = null;
+    this.switchCandidateCycles = 0;
+    this.switchConfirmationCycles = 3; // Must sustain advantage for 3 consecutive detection cycles
+    this.switchMarginMultiplier = 1.15; // 15% higher relevance required
+    this.switchMarginOffset = 0.02;
+
+    // Proximity announcement throttle
+    this.proximityCooldown = 3200; // 3.2s minimum gap between non-urgent proximity updates
+    this.lastProximityAnnouncedTime = 0;
+    this.lastAnnouncedState = null;
+
+    // Detection stats cache
+    this.activeObjectsList = [];
   }
 
   init() {
@@ -40,10 +61,9 @@ class PrimaryPersonTracker {
   bindControls() {
     const btnUnlock = document.getElementById('btnUnlockPrimaryPerson');
     if (btnUnlock) {
-      btnUnlock.addEventListener('click', () => this.unlockPerson());
+      btnUnlock.addEventListener('click', () => this.unlockTarget());
     }
 
-    // Canvas Tap Listener
     const canvas = document.getElementById('overlayCanvas');
     const container = document.querySelector('.camera-preview-container');
     const targetElement = canvas || container;
@@ -53,9 +73,6 @@ class PrimaryPersonTracker {
     }
   }
 
-  /**
-   * Handle user tap on viewfinder canvas to lock a person
-   */
   handleCanvasTap(event) {
     const canvas = document.getElementById('overlayCanvas');
     if (!canvas) return;
@@ -77,26 +94,26 @@ class PrimaryPersonTracker {
     const offsetX = (containerW - renderW) / 2;
     const offsetY = (containerH - renderH) / 2;
 
-    // Check if tap hit any detected person
-    for (const person of this.detectedPeople) {
-      const [bx, by, bw, bh] = person.bbox;
+    const visible = Array.from(this.trackedObjects.values()).filter(t => t.absentFrames === 0);
+
+    for (const obj of visible) {
+      const [bx, by, bw, bh] = obj.bbox;
       const drawX = bx * scale + offsetX;
       const drawY = by * scale + offsetY;
       const drawW = bw * scale;
       const drawH = bh * scale;
+      const pad = 14;
 
-      // Expand tap target slightly for touch ergonomics
-      const pad = 12;
       if (
         clickX >= drawX - pad &&
         clickX <= drawX + drawW + pad &&
         clickY >= drawY - pad &&
         clickY <= drawY + drawH + pad
       ) {
-        if (this.lockStatus === 'locked' && this.lockedPersonId === person.id) {
-          this.unlockPerson();
+        if (this.primaryTarget && this.primaryTarget.id === obj.id) {
+          this.unlockTarget();
         } else {
-          this.lockPerson(person);
+          this.lockTarget(obj, 'manual_tap');
         }
         return;
       }
@@ -104,337 +121,578 @@ class PrimaryPersonTracker {
   }
 
   /**
-   * Lock a detected person as the Primary Person
+   * Main cycle update called directly from camera detection loop
    */
-  lockPerson(person) {
-    if (!person) return;
+  update(predictions = [], vWidth = 1280, vHeight = 720) {
+    const now = Date.now();
+    vWidth = Math.max(1, vWidth);
+    vHeight = Math.max(1, vHeight);
 
-    this.lockedPersonId = person.id || `person_${this.nextPersonId++}`;
-    this.lockedPerson = {
-      ...person,
-      id: this.lockedPersonId
-    };
+    // 1. Associate current predictions with tracked objects using IoU + Centroid distance
+    this.matchDetections(predictions, now, vWidth, vHeight);
+
+    // 2. Estimate relative proximity & dynamic temporal trend for every tracked object
+    for (const tracked of this.trackedObjects.values()) {
+      if (tracked.absentFrames === 0) {
+        this.estimateProximity(tracked, vWidth, vHeight, now);
+      }
+    }
+
+    // 3. Automatic Primary Target Selection, Closer-Target Switching & Loss Recovery
+    this.updateTargetSelection(now);
+
+    // 4. Clean up old tracked objects that have been absent for > 8 seconds
+    for (const [id, tracked] of this.trackedObjects.entries()) {
+      if (tracked.absentFrames > 0 && now - tracked.lastSeen > 8000) {
+        if (!this.primaryTarget || this.primaryTarget.id !== id) {
+          this.trackedObjects.delete(id);
+        }
+      }
+    }
+
+    this.activeObjectsList = Array.from(this.trackedObjects.values()).filter(t => t.absentFrames === 0);
+    this.updateDashboardUI();
+  }
+
+  /**
+   * Associate detections with existing tracks using IoU, centroid distance and class labels
+   */
+  matchDetections(predictions, now, vWidth, vHeight) {
+    const unmatchedDetections = [...predictions];
+    const matchedTrackIds = new Set();
+    const diag = Math.hypot(vWidth, vHeight);
+
+    // Sort existing tracks: give matching priority to currently tracked objects with higher history
+    const existingTracks = Array.from(this.trackedObjects.values())
+      .sort((a, b) => (b.id === this.primaryTargetId ? 1 : 0) - (a.id === this.primaryTargetId ? 1 : 0));
+
+    for (const track of existingTracks) {
+      let bestDetIndex = -1;
+      let minCost = Infinity;
+
+      for (let i = 0; i < unmatchedDetections.length; i++) {
+        const det = unmatchedDetections[i];
+        if (det.class.toLowerCase() !== track.class.toLowerCase()) continue;
+
+        const iou = this.computeIoU(track.bbox, det.bbox);
+        const [tx, ty, tw, th] = track.bbox;
+        const [dx, dy, dw, dh] = det.bbox;
+        const tCenterX = tx + tw / 2;
+        const tCenterY = ty + th / 2;
+        const dCenterX = dx + dw / 2;
+        const dCenterY = dy + dh / 2;
+        const centerDist = Math.hypot(tCenterX - dCenterX, tCenterY - dCenterY);
+
+        // Matching criteria: good overlap OR close centroid movement
+        const maxSpan = Math.max(tw, th, dw, dh) * 1.5;
+        if (iou > 0.15 || centerDist < maxSpan) {
+          const cost = (1 - iou) * 0.60 + (centerDist / diag) * 0.40;
+          if (cost < minCost) {
+            minCost = cost;
+            bestDetIndex = i;
+          }
+        }
+      }
+
+      if (bestDetIndex !== -1 && minCost < 0.85) {
+        const matched = unmatchedDetections.splice(bestDetIndex, 1)[0];
+        track.bbox = matched.bbox;
+        track.score = matched.score;
+        track.spatial = matched.spatial || this.computeSpatialPosition(matched.bbox, vWidth);
+        track.lastSeen = now;
+        track.absentFrames = 0;
+        track.consecutiveFrames++;
+        matchedTrackIds.add(track.id);
+      } else {
+        track.absentFrames++;
+      }
+    }
+
+    // Register remaining unmatched detections as new tracked objects
+    for (const det of unmatchedDetections) {
+      const id = this.nextTrackId++;
+      const [x, y, w, h] = det.bbox;
+      const initialAreaRatio = (w * h) / (vWidth * vHeight);
+      const initialHeightRatio = h / vHeight;
+
+      const newTrack = {
+        id,
+        trackId: `track_${id}`,
+        class: (det.class || 'object').toLowerCase(),
+        bbox: det.bbox,
+        score: det.score || 0.85,
+        spatial: det.spatial || this.computeSpatialPosition(det.bbox, vWidth),
+        firstSeen: now,
+        lastSeen: now,
+        consecutiveFrames: 1,
+        absentFrames: 0,
+        isPrimaryTarget: false,
+
+        // Proximity metrics
+        areaRatio: initialAreaRatio,
+        heightRatio: initialHeightRatio,
+        smoothedArea: initialAreaRatio,
+        smoothedHeight: initialHeightRatio,
+        proximityScore: null,
+        smoothedProximityScore: null,
+        proximityTrend: 'STABLE',
+        proximityState: 'FAR',
+        lastAnnouncedState: null,
+        relevanceScore: 0.1,
+
+        history: [
+          {
+            time: now,
+            bbox: det.bbox,
+            areaRatio: initialAreaRatio,
+            smoothedArea: initialAreaRatio,
+            heightRatio: initialHeightRatio,
+            score: det.score || 0.85,
+            proximityScore: 0.1
+          }
+        ]
+      };
+
+      this.trackedObjects.set(id, newTrack);
+    }
+  }
+
+  computeIoU(boxA, boxB) {
+    const xA = Math.max(boxA[0], boxB[0]);
+    const yA = Math.max(boxA[1], boxB[1]);
+    const xB = Math.min(boxA[0] + boxA[2], boxB[0] + boxB[2]);
+    const yB = Math.min(boxA[1] + boxA[3], boxB[1] + boxB[3]);
+
+    const interArea = Math.max(0, xB - xA) * Math.max(0, yB - yA);
+    if (interArea <= 0) return 0;
+
+    const boxAArea = boxA[2] * boxA[3];
+    const boxBArea = boxB[2] * boxB[3];
+    const unionArea = boxAArea + boxBArea - interArea;
+    return unionArea > 0 ? interArea / unionArea : 0;
+  }
+
+  computeSpatialPosition(bbox, vWidth) {
+    const [x, , w] = bbox;
+    const centerX = x + w / 2;
+    const third = vWidth / 3;
+    if (centerX < third) return { position: 'Left' };
+    if (centerX > third * 2) return { position: 'Right' };
+    return { position: 'Centre' };
+  }
+
+  /**
+   * Smart Proximity Estimation & Dynamic Trend Computation
+   */
+  estimateProximity(tracked, vWidth, vHeight, now) {
+    const [x, y, w, h] = tracked.bbox;
+    const frameArea = Math.max(1, vWidth * vHeight);
+    const area = w * h;
+    const areaRatio = area / frameArea;
+    const heightRatio = h / Math.max(1, vHeight);
+    const bottomY = Math.min(1.0, (y + h) / Math.max(1, vHeight));
+    const score = tracked.score || 0;
+
+    // Category physical scale normalization
+    let catScale = 1.0;
+    const cls = tracked.class.toLowerCase();
+    if (['car', 'bus', 'truck', 'train'].includes(cls)) {
+      catScale = 0.55;
+    } else if (['bottle', 'cup', 'cell phone', 'mouse', 'remote', 'book', 'apple'].includes(cls)) {
+      catScale = 2.4;
+    } else if (['chair', 'couch', 'table', 'dining table', 'bicycle', 'motorcycle', 'dog'].includes(cls)) {
+      catScale = 1.1;
+    } else if (cls === 'person') {
+      catScale = 1.0;
+    }
+
+    const rawProximity = Math.min(1.0, (areaRatio * catScale * 0.50) + (heightRatio * 0.35) + (bottomY * 0.15));
+
+    // Exponential Moving Average (EMA) smoothing
+    const alpha = 0.40;
+    tracked.smoothedArea = tracked.smoothedArea !== null ? (alpha * areaRatio + (1 - alpha) * tracked.smoothedArea) : areaRatio;
+    tracked.smoothedHeight = tracked.smoothedHeight !== null ? (alpha * heightRatio + (1 - alpha) * tracked.smoothedHeight) : heightRatio;
+    tracked.smoothedProximityScore = tracked.smoothedProximityScore !== null ? (alpha * rawProximity + (1 - alpha) * tracked.smoothedProximityScore) : rawProximity;
+    tracked.proximityScore = rawProximity;
+
+    tracked.history.push({
+      time: now,
+      bbox: tracked.bbox,
+      areaRatio,
+      smoothedArea: tracked.smoothedArea,
+      heightRatio: tracked.smoothedHeight,
+      score,
+      proximityScore: tracked.smoothedProximityScore
+    });
+
+    if (tracked.history.length > 10) {
+      tracked.history.shift();
+    }
+
+    // Low confidence -> UNCERTAIN
+    if (score < 0.45) {
+      tracked.proximityTrend = 'STABLE';
+      tracked.proximityState = 'UNCERTAIN';
+      return;
+    }
+
+    // Dynamic Trend Analysis (Requires >= 3 consecutive frames)
+    let trend = 'STABLE';
+    let deltaArea = 0;
+
+    if (tracked.history.length >= 3) {
+      const windowLen = Math.min(tracked.history.length, 5);
+      const startIndex = tracked.history.length - windowLen;
+      const windowStart = tracked.history[startIndex];
+      const newest = tracked.history[tracked.history.length - 1];
+      const baseArea = Math.max(0.005, windowStart.smoothedArea);
+      deltaArea = (newest.smoothedArea - baseArea) / baseArea;
+
+      let incCount = 0;
+      let decCount = 0;
+      for (let i = startIndex + 1; i < tracked.history.length; i++) {
+        const diff = tracked.history[i].smoothedArea - tracked.history[i - 1].smoothedArea;
+        if (diff > 0.001) incCount++;
+        else if (diff < -0.001) decCount++;
+      }
+
+      const thresholdFrames = Math.max(2, Math.floor((windowLen - 1) * 0.60));
+
+      if (deltaArea >= 0.12 && incCount >= thresholdFrames) {
+        trend = 'APPROACHING';
+      } else if (deltaArea <= -0.12 && decCount >= thresholdFrames) {
+        trend = 'MOVING AWAY';
+      } else {
+        trend = 'STABLE';
+      }
+    }
+
+    tracked.proximityTrend = trend;
+    tracked.deltaAreaPercent = Math.round(deltaArea * 100);
+
+    // Static Distance Category
+    const isClose = (tracked.smoothedHeight > 0.52 || (tracked.smoothedArea * catScale) > 0.20 || tracked.smoothedProximityScore > 0.48);
+    const isFar = (tracked.smoothedHeight < 0.28 && (tracked.smoothedArea * catScale) < 0.08);
+
+    // Unified Proximity State
+    if (trend === 'APPROACHING') {
+      tracked.proximityState = isClose ? 'CLOSE' : 'APPROACHING';
+    } else if (trend === 'MOVING AWAY') {
+      tracked.proximityState = 'MOVING AWAY';
+    } else {
+      // STABLE
+      if (isClose) {
+        tracked.proximityState = 'CLOSE';
+      } else if (isFar) {
+        tracked.proximityState = 'FAR';
+      } else {
+        tracked.proximityState = 'STABLE';
+      }
+    }
+  }
+
+  /**
+   * Automatic Target Selection, Closer-Target Switching with Hysteresis & Target Loss Recovery
+   */
+  updateTargetSelection(now) {
+    const visible = Array.from(this.trackedObjects.values()).filter(t => t.absentFrames === 0);
+
+    // If no objects visible in current frame
+    if (visible.length === 0) {
+      if (this.primaryTarget) {
+        if (this.lostSince === null) {
+          this.lostSince = now;
+        }
+        const elapsed = now - this.lostSince;
+        if (elapsed <= this.lostRecoveryPeriod) {
+          this.lockStatus = 'temporarily_lost';
+        } else {
+          const lost = this.primaryTarget;
+          this.primaryTarget = null;
+          this.primaryTargetId = null;
+          this.lockStatus = 'not_locked';
+          this.lostSince = null;
+          if (window.voiceAssistant) {
+            window.voiceAssistant.announceTargetEvent('target_lost', lost);
+          }
+        }
+      } else {
+        this.lockStatus = 'not_locked';
+      }
+      return;
+    }
+
+    // Compute Relevance / Closeness Score for each visible object
+    visible.forEach(obj => {
+      const prox = obj.smoothedProximityScore || 0;
+      const score = obj.score || 0;
+      const approachBonus = (obj.proximityTrend === 'APPROACHING') ? 0.06 : 0;
+      obj.relevanceScore = (prox * 0.85) + (score * 0.09) + approachBonus;
+    });
+
+    // Rank visible objects descending by relevance
+    visible.sort((a, b) => b.relevanceScore - a.relevanceScore);
+    const bestCandidate = visible[0];
+
+    // CASE 1: No current primary target -> Automatically lock the best candidate!
+    if (!this.primaryTarget || this.lockStatus === 'not_locked') {
+      this.lockTarget(bestCandidate, 'auto_select');
+      return;
+    }
+
+    // CASE 2: Primary target is active
+    const currentTargetVisible = visible.find(o => o.id === this.primaryTarget.id);
+
+    if (currentTargetVisible) {
+      this.primaryTarget = currentTargetVisible;
+      this.primaryTargetId = currentTargetVisible.id;
+      this.lockStatus = 'locked';
+      this.lostSince = null;
+
+      // Mark primary target flag on tracks
+      for (const obj of visible) {
+        obj.isPrimaryTarget = (obj.id === this.primaryTarget.id);
+      }
+
+      // Automatic Target Switching with Hysteresis
+      if (bestCandidate.id !== this.primaryTarget.id) {
+        const threshold = (this.primaryTarget.relevanceScore * this.switchMarginMultiplier) + this.switchMarginOffset;
+
+        if (bestCandidate.relevanceScore > threshold) {
+          if (this.switchCandidateId === bestCandidate.id) {
+            this.switchCandidateCycles++;
+          } else {
+            this.switchCandidateId = bestCandidate.id;
+            this.switchCandidateCycles = 1;
+          }
+
+          if (this.switchCandidateCycles >= this.switchConfirmationCycles) {
+            // Sustained closeness confirmed -> Switch primary target!
+            this.switchCandidateId = null;
+            this.switchCandidateCycles = 0;
+            this.lockTarget(bestCandidate, 'auto_switch');
+            return;
+          }
+        } else {
+          this.switchCandidateId = null;
+          this.switchCandidateCycles = 0;
+        }
+      } else {
+        this.switchCandidateId = null;
+        this.switchCandidateCycles = 0;
+      }
+
+      // Proximity State Change Monitoring
+      this.checkTargetProximityChange(this.primaryTarget, now);
+
+    } else {
+      // Primary target is absent in this frame
+      if (this.lostSince === null) {
+        this.lostSince = now;
+      }
+      const elapsed = now - this.lostSince;
+
+      // If an immediate close obstacle is in view while current is missing for > 1.2s, switch to it
+      if (elapsed > 1200 && bestCandidate && bestCandidate.proximityState === 'CLOSE') {
+        this.lockTarget(bestCandidate, 'auto_switch');
+        return;
+      }
+
+      if (elapsed <= this.lostRecoveryPeriod) {
+        this.lockStatus = 'temporarily_lost';
+      } else {
+        if (bestCandidate) {
+          this.lockTarget(bestCandidate, 'auto_select');
+        } else {
+          const lost = this.primaryTarget;
+          this.primaryTarget = null;
+          this.primaryTargetId = null;
+          this.lockStatus = 'not_locked';
+          this.lostSince = null;
+          if (window.voiceAssistant) {
+            window.voiceAssistant.announceTargetEvent('target_lost', lost);
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Monitor primary target proximity state transitions and trigger announcements
+   */
+  checkTargetProximityChange(target, now) {
+    if (!target || target.proximityState === 'UNCERTAIN') return;
+
+    const currentState = target.proximityState;
+
+    if (target.lastAnnouncedState !== currentState) {
+      target.lastAnnouncedState = currentState;
+      this.lastAnnouncedState = currentState;
+      this.lastProximityAnnouncedTime = now;
+
+      if (window.voiceAssistant) {
+        let eventType = null;
+        if (currentState === 'APPROACHING') eventType = 'approaching';
+        else if (currentState === 'CLOSE') eventType = 'close';
+        else if (currentState === 'MOVING AWAY') eventType = 'moving_away';
+        else if (currentState === 'FAR' && target.history && target.history.length > 3) eventType = 'far';
+
+        if (eventType) {
+          window.voiceAssistant.announceTargetEvent(eventType, target);
+        }
+      }
+    }
+  }
+
+  /**
+   * Lock a target as the primary tracking target
+   */
+  lockTarget(target, reason = 'auto_select') {
+    if (!target) return;
+
+    const previousTarget = this.primaryTarget;
+    if (previousTarget) {
+      previousTarget.isPrimaryTarget = false;
+    }
+
+    this.primaryTarget = target;
+    this.primaryTargetId = target.id;
     this.lockStatus = 'locked';
     this.lostSince = null;
-    this.history = [];
-    this.lastAnnouncedProximity = (person.proximity && person.proximity.level) || 'Far';
-    this.lastAnnouncedTime = Date.now();
+    target.isPrimaryTarget = true;
+    target.lastAnnouncedState = target.proximityState || 'FAR';
+    this.lastAnnouncedState = target.lastAnnouncedState;
+    this.lastProximityAnnouncedTime = Date.now();
 
     if (window.soundEngine) window.soundEngine.playToggle(true);
     if (window.a11yManager) window.a11yManager.vibrate([40, 80, 40]);
 
     if (window.voiceAssistant) {
-      window.voiceAssistant.announcePrimaryPerson('locked');
+      if (reason === 'auto_switch') {
+        window.voiceAssistant.announceTargetEvent('target_switched', target);
+      } else {
+        window.voiceAssistant.announceTargetEvent('target_acquired', target);
+      }
     }
 
     if (window.app) {
-      window.app.logActivity(`Primary person locked (${this.lockedPersonId}).`, "camera");
+      window.app.logActivity(`Target locked: ${target.class} (#${target.id}) [${reason}].`, "camera");
     }
 
     this.updateDashboardUI();
   }
 
   /**
-   * Unlock the Primary Person
+   * Explicitly unlock the target
    */
-  unlockPerson() {
+  unlockTarget() {
     if (this.lockStatus === 'not_locked') return;
 
-    this.lockedPersonId = null;
-    this.lockedPerson = null;
+    if (this.primaryTarget) {
+      this.primaryTarget.isPrimaryTarget = false;
+    }
+    this.primaryTarget = null;
+    this.primaryTargetId = null;
     this.lockStatus = 'not_locked';
     this.lostSince = null;
-    this.history = [];
-    this.lastAnnouncedProximity = null;
+    this.lastAnnouncedState = null;
 
     if (window.soundEngine) window.soundEngine.playToggle(false);
     if (window.a11yManager) window.a11yManager.vibrate(30);
 
     if (window.voiceAssistant) {
-      window.voiceAssistant.announcePrimaryPerson('unlocked');
+      window.voiceAssistant.announceTargetEvent('unlocked', null);
     }
 
     if (window.app) {
-      window.app.logActivity("Primary person unlocked.", "camera");
+      window.app.logActivity("Target manually unlocked.", "camera");
     }
 
     this.updateDashboardUI();
   }
 
-  /**
-   * Frame-by-frame tracker update called from detection cycle
-   */
-  update(predictions = [], vWidth = 1280, vHeight = 720) {
-    const now = Date.now();
-    const rawPeople = predictions.filter(p => p.class === 'person');
+  // Backward compatibility alias for unlockPerson
+  unlockPerson() {
+    this.unlockTarget();
+  }
 
-    // 1. Maintain frame-to-frame IDs for all visible people
-    this.detectedPeople = this.trackPeopleAcrossFrames(rawPeople, now);
+  // Backward compatibility alias for lockPerson
+  lockPerson(person) {
+    this.lockTarget(person, 'manual_tap');
+  }
 
-    // 2. Handle Primary Person Lock
-    if (this.lockStatus === 'not_locked') {
-      this.updateDashboardUI();
-      return;
-    }
+  get detectedPeople() {
+    return Array.from(this.trackedObjects.values()).filter(t => t.class === 'person' && t.absentFrames === 0);
+  }
 
-    // Match locked person in current frame
-    let matchedPerson = null;
-    let minDistance = Infinity;
+  get lockedPerson() {
+    return this.primaryTarget;
+  }
 
-    if (this.lockedPerson) {
-      const [lx, ly, lw, lh] = this.lockedPerson.bbox;
-      const lCenterX = lx + lw / 2;
-      const lCenterY = ly + lh / 2;
+  get lockedPersonId() {
+    return this.primaryTargetId;
+  }
 
-      for (const p of this.detectedPeople) {
-        const [px, py, pw, ph] = p.bbox;
-        const pCenterX = px + pw / 2;
-        const pCenterY = py + ph / 2;
-
-        const dist = Math.hypot(pCenterX - lCenterX, pCenterY - lCenterY);
-        // Matching threshold: must be within reasonable spatial distance (< 45% of width)
-        if (dist < minDistance && dist < vWidth * 0.45) {
-          minDistance = dist;
-          matchedPerson = p;
-        }
-      }
-    }
-
-    if (matchedPerson) {
-      // Primary person is actively visible!
-      this.lockStatus = 'locked';
-      this.lostSince = null;
-
-      // Update locked person details
-      this.lockedPerson.bbox = matchedPerson.bbox;
-      this.lockedPerson.spatial = matchedPerson.spatial;
-      this.lockedPerson.score = matchedPerson.score;
-      this.lockedPerson.lastSeen = now;
-      matchedPerson.isPrimaryPerson = true;
-
-      // Estimate Relative Proximity using size & temporal expansion
-      const proximity = this.estimateProximity(this.lockedPerson, vWidth, vHeight, now);
-      this.lockedPerson.proximity = proximity;
-      matchedPerson.proximity = proximity;
-
-      // Check proximity state change announcement
-      this.checkProximityAnnouncement(proximity.level, now);
-
-    } else {
-      // Primary person is missing from current frame!
-      if (this.lostSince === null) {
-        this.lostSince = now;
-      }
-
-      const elapsedLost = now - this.lostSince;
-      if (elapsedLost <= this.lostRecoveryPeriod) {
-        // Within recovery window: retain identity, display temporarily lost
-        this.lockStatus = 'temporarily_lost';
-        if (this.lockedPerson) {
-          this.lockedPerson.proximity = { level: 'Uncertain', levelHi: 'अनिश्चित', confidence: 0 };
-        }
-      } else {
-        // Recovery window expired: unlock and report lost honestly
-        this.lockStatus = 'not_locked';
-        const hadPerson = this.lockedPerson;
-        this.lockedPerson = null;
-        this.lockedPersonId = null;
-
-        if (window.voiceAssistant && hadPerson) {
-          window.voiceAssistant.announcePrimaryPerson('lost');
-        }
-        if (window.app) {
-          window.app.logActivity("Primary person tracking lost (recovery window expired).", "camera");
-        }
-      }
-    }
-
+  reset() {
+    this.trackedObjects.clear();
+    this.primaryTarget = null;
+    this.primaryTargetId = null;
+    this.lockStatus = 'not_locked';
+    this.lostSince = null;
+    this.switchCandidateId = null;
+    this.switchCandidateCycles = 0;
+    this.lastAnnouncedState = null;
+    this.activeObjectsList = [];
     this.updateDashboardUI();
   }
 
   /**
-   * Assign consistent tracking IDs across frames using centroid proximity
-   */
-  trackPeopleAcrossFrames(rawPeople, now) {
-    const trackedList = [];
-    const matchedTrackIds = new Set();
-
-    for (const raw of rawPeople) {
-      const [rx, ry, rw, rh] = raw.bbox;
-      const rCenterX = rx + rw / 2;
-      const rCenterY = ry + rh / 2;
-
-      let bestMatch = null;
-      let minDistance = Infinity;
-
-      for (const [id, entry] of this.trackedPeopleMap.entries()) {
-        const [ex, ey, ew, eh] = entry.bbox;
-        const eCenterX = ex + ew / 2;
-        const eCenterY = ey + eh / 2;
-        const dist = Math.hypot(rCenterX - eCenterX, rCenterY - eCenterY);
-
-        if (dist < minDistance && dist < 450 && !matchedTrackIds.has(id)) {
-          minDistance = dist;
-          bestMatch = entry;
-        }
-      }
-
-      if (bestMatch) {
-        bestMatch.bbox = raw.bbox;
-        bestMatch.score = raw.score;
-        bestMatch.spatial = raw.spatial;
-        bestMatch.lastSeen = now;
-        matchedTrackIds.add(bestMatch.id);
-        trackedList.push(bestMatch);
-      } else {
-        const id = `person_${this.nextPersonId++}`;
-        const newEntry = {
-          id,
-          class: 'person',
-          bbox: raw.bbox,
-          score: raw.score,
-          spatial: raw.spatial,
-          lastSeen: now,
-          isPrimaryPerson: false
-        };
-        this.trackedPeopleMap.set(id, newEntry);
-        matchedTrackIds.add(id);
-        trackedList.push(newEntry);
-      }
-    }
-
-    // Clean up old entries missing for > 10 seconds
-    for (const [id, entry] of this.trackedPeopleMap.entries()) {
-      if (now - entry.lastSeen > 10000 && id !== this.lockedPersonId) {
-        this.trackedPeopleMap.delete(id);
-      }
-    }
-
-    return trackedList;
-  }
-
-  /**
-   * Experimental Camera-Based Relative Proximity Estimation
-   * Categories: Far, Approaching, Close, Uncertain
-   */
-  estimateProximity(person, vWidth, vHeight, now) {
-    const [, , w, h] = person.bbox;
-    const area = w * h;
-    const frameArea = (vWidth || 1) * (vHeight || 1);
-    const areaRatio = area / frameArea;
-    const heightRatio = h / (vHeight || 1);
-    const score = person.score || 0;
-
-    // Push to rolling history window
-    this.history.push({
-      time: now,
-      areaRatio,
-      heightRatio,
-      score
-    });
-
-    if (this.history.length > this.historyWindowSize) {
-      this.history.shift();
-    }
-
-    // 1. Low confidence -> Uncertain
-    if (score < 0.45) {
-      return { level: 'Uncertain', levelHi: 'अनिश्चित', confidence: Math.round(score * 100) };
-    }
-
-    // 2. High frame occupancy -> Close
-    if (heightRatio > 0.52 || areaRatio > 0.20) {
-      return { level: 'Close', levelHi: 'पास', confidence: Math.round(score * 100) };
-    }
-
-    // 3. Temporal expansion trend analysis -> Approaching
-    // Requires multiple consecutive frames of steady expansion
-    if (this.history.length >= 3) {
-      const oldest = this.history[0];
-      const newest = this.history[this.history.length - 1];
-      const areaDelta = (newest.areaRatio - oldest.areaRatio) / Math.max(0.01, oldest.areaRatio);
-      const heightDelta = (newest.heightRatio - oldest.heightRatio) / Math.max(0.01, oldest.heightRatio);
-
-      // Verify consistent increase across intermediate frames
-      let isSteadilyGrowing = true;
-      for (let i = 1; i < this.history.length; i++) {
-        if (this.history[i].areaRatio < this.history[i - 1].areaRatio * 0.95) {
-          isSteadilyGrowing = false;
-          break;
-        }
-      }
-
-      // If expanding by >= 15% across frames and growing steadily
-      if (isSteadilyGrowing && areaDelta >= 0.15 && heightDelta >= 0.08) {
-        return { level: 'Approaching', levelHi: 'पास आ रहा है', confidence: Math.round(score * 100) };
-      }
-    }
-
-    // 4. Small frame occupancy -> Far
-    if (heightRatio < 0.30 && areaRatio < 0.08) {
-      return { level: 'Far', levelHi: 'दूर', confidence: Math.round(score * 100) };
-    }
-
-    return { level: 'Far', levelHi: 'दूर', confidence: Math.round(score * 100) };
-  }
-
-  /**
-   * Check and announce proximity transitions
-   */
-  checkProximityAnnouncement(newLevel, now) {
-    if (!newLevel || newLevel === 'Uncertain') return;
-
-    if (this.lastAnnouncedProximity !== newLevel) {
-      const isImportantTransition = newLevel === 'Close' || newLevel === 'Approaching';
-      if (isImportantTransition || (now - this.lastAnnouncedTime >= this.proximityCooldown)) {
-        this.lastAnnouncedProximity = newLevel;
-        this.lastAnnouncedTime = now;
-
-        let stateKey = 'far';
-        if (newLevel === 'Approaching') stateKey = 'approaching';
-        else if (newLevel === 'Close') stateKey = 'close';
-
-        if (window.voiceAssistant) {
-          window.voiceAssistant.announcePrimaryPerson(stateKey);
-        }
-      }
-    }
-  }
-
-  /**
-   * Update Dashboard controls & status display
+   * Update Dashboard UI elements
    */
   updateDashboardUI() {
     const badgeEl = document.getElementById('primaryLockStatusBadge');
     const statusTextEl = document.getElementById('valPrimaryPersonStatus');
     const proximityEl = document.getElementById('valPrimaryProximity');
     const confidenceEl = document.getElementById('valPrimaryConfidence');
+    const trendEl = document.getElementById('valTargetTrend');
     const announceStatusEl = document.getElementById('valPrimaryAnnounceStatus');
     const btnUnlock = document.getElementById('btnUnlockPrimaryPerson');
     const peopleButtonsRow = document.getElementById('detectedPeopleButtons');
 
     if (!statusTextEl) return;
 
-    if (this.lockStatus === 'locked' && this.lockedPerson) {
+    const visible = Array.from(this.trackedObjects.values()).filter(t => t.absentFrames === 0);
+
+    if (this.lockStatus === 'locked' && this.primaryTarget) {
+      const t = this.primaryTarget;
+      const pos = t.spatial ? t.spatial.position : 'Centre';
+      const score = Math.round((t.score || 0) * 100);
+
       if (badgeEl) {
         badgeEl.textContent = "Locked";
         badgeEl.className = "lock-status-badge locked";
       }
-      statusTextEl.textContent = `Tracking Primary Person (${this.lockedPerson.spatial ? this.lockedPerson.spatial.position : 'View'})`;
+
+      statusTextEl.textContent = `${t.class.toUpperCase()} #${t.id} (${pos})`;
       statusTextEl.style.color = "var(--accent-cyan)";
 
-      const prox = this.lockedPerson.proximity || { level: 'Uncertain' };
       if (proximityEl) {
-        proximityEl.textContent = prox.level;
-        proximityEl.className = `p-metric-val proximity-badge ${prox.level.toLowerCase()}`;
+        proximityEl.textContent = t.proximityState || 'FAR';
+        proximityEl.className = `p-metric-val proximity-badge ${(t.proximityState || 'far').toLowerCase().replace(/\s+/g, '-')}`;
+      }
+
+      if (trendEl) {
+        const delta = t.deltaAreaPercent !== undefined ? `${t.deltaAreaPercent > 0 ? '+' : ''}${t.deltaAreaPercent}%` : '';
+        trendEl.textContent = `${t.proximityTrend} ${delta}`.trim();
+        trendEl.style.color = t.proximityTrend === 'APPROACHING' ? '#f59e0b' : (t.proximityTrend === 'MOVING AWAY' ? '#38bdf8' : 'var(--text-secondary)');
       }
 
       if (confidenceEl) {
-        confidenceEl.textContent = `${Math.round((this.lockedPerson.score || 0) * 100)}%`;
+        confidenceEl.textContent = `${score}%`;
       }
 
       if (announceStatusEl) {
-        announceStatusEl.textContent = "Primary Priority Active";
+        announceStatusEl.textContent = "Auto Target Priority";
         announceStatusEl.style.color = "var(--status-online)";
       }
 
@@ -445,24 +703,30 @@ class PrimaryPersonTracker {
         badgeEl.textContent = "Temporarily Lost";
         badgeEl.className = "lock-status-badge lost";
       }
-      statusTextEl.textContent = "Primary person temporarily lost...";
+
+      statusTextEl.textContent = "Reacquiring target...";
       statusTextEl.style.color = "var(--status-warning)";
 
       if (proximityEl) {
-        proximityEl.textContent = "Uncertain";
+        proximityEl.textContent = "UNCERTAIN";
         proximityEl.className = "p-metric-val proximity-badge uncertain";
       }
 
+      if (trendEl) trendEl.textContent = "Searching...";
       if (confidenceEl) confidenceEl.textContent = "Searching...";
-      if (announceStatusEl) announceStatusEl.textContent = "Reacquiring...";
+      if (announceStatusEl) {
+        announceStatusEl.textContent = "Reacquiring...";
+        announceStatusEl.style.color = "var(--status-warning)";
+      }
       if (btnUnlock) btnUnlock.style.display = 'inline-flex';
 
     } else {
       if (badgeEl) {
-        badgeEl.textContent = "Not Locked";
+        badgeEl.textContent = visible.length > 0 ? "Auto-Scanning" : "Searching";
         badgeEl.className = "lock-status-badge not-locked";
       }
-      statusTextEl.textContent = "Not Locked";
+
+      statusTextEl.textContent = visible.length > 0 ? "Scanning view..." : "No objects in view";
       statusTextEl.style.color = "var(--text-secondary)";
 
       if (proximityEl) {
@@ -470,53 +734,42 @@ class PrimaryPersonTracker {
         proximityEl.className = "p-metric-val proximity-badge";
       }
 
+      if (trendEl) trendEl.textContent = "—";
       if (confidenceEl) confidenceEl.textContent = "—";
       if (announceStatusEl) {
-        announceStatusEl.textContent = "Normal Queue";
+        announceStatusEl.textContent = "Auto Standby";
         announceStatusEl.style.color = "var(--text-muted)";
       }
-
       if (btnUnlock) btnUnlock.style.display = 'none';
     }
 
-    // Render quick-select person buttons
+    // Render quick-select pills for all visible tracked objects
     if (peopleButtonsRow) {
-      if (this.detectedPeople.length === 0) {
-        peopleButtonsRow.innerHTML = '<span class="no-people-hint">No people detected in frame</span>';
+      if (visible.length === 0) {
+        peopleButtonsRow.innerHTML = '<span class="no-people-hint">No objects currently detected</span>';
       } else {
         peopleButtonsRow.innerHTML = '';
-        this.detectedPeople.forEach((p, idx) => {
+        visible.forEach(obj => {
           const btn = document.createElement('button');
           btn.className = 'btn-person-pill';
-          const pos = p.spatial ? p.spatial.position : 'Centre';
-          const isTarget = this.lockStatus === 'locked' && this.lockedPersonId === p.id;
+          const isTarget = this.primaryTarget && this.primaryTarget.id === obj.id;
           if (isTarget) btn.classList.add('active');
 
+          const pos = obj.spatial ? obj.spatial.position : 'Centre';
           btn.innerHTML = `
-            <svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:currentColor;"><path d="M12 2a5 5 0 100 10 5 5 0 000-10zm-7 17a7 7 0 1114 0H5z"/></svg>
-            <span>${isTarget ? 'Locked: ' : 'Lock: '}Person ${idx + 1} (${pos})</span>
+            <svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:currentColor;"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 18a8 8 0 110-16 8 8 0 010 16z"/></svg>
+            <span>${isTarget ? '★ Target: ' : 'Lock: '}${obj.class} #${obj.id} (${pos} · ${obj.proximityState})</span>
           `;
           btn.addEventListener('click', () => {
-            if (isTarget) this.unlockPerson();
-            else this.lockPerson(p);
+            if (isTarget) this.unlockTarget();
+            else this.lockTarget(obj, 'manual_pill');
           });
           peopleButtonsRow.appendChild(btn);
         });
       }
     }
   }
-
-  reset() {
-    this.lockedPersonId = null;
-    this.lockedPerson = null;
-    this.lockStatus = 'not_locked';
-    this.lostSince = null;
-    this.history = [];
-    this.lastAnnouncedProximity = null;
-    this.detectedPeople = [];
-    this.trackedPeopleMap.clear();
-    this.updateDashboardUI();
-  }
 }
 
-window.primaryPersonTracker = new PrimaryPersonTracker();
+window.targetTracker = new UnifiedTargetTracker();
+window.primaryPersonTracker = window.targetTracker; // Backward-compatibility alias

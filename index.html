@@ -212,28 +212,29 @@
       </section>
 
       <!-- ====================================================================
-           3B. PRIMARY PERSON & RELATIVE PROXIMITY (Smart Distance Awareness)
+           3B. PRIMARY TARGET & AUTOMATIC TRACKING (Smart Proximity Awareness)
            ==================================================================== -->
-      <section class="section-card primary-person-card" aria-labelledby="primaryPersonHeading">
+      <section class="section-card primary-person-card" aria-labelledby="primaryTargetHeading">
         <div class="section-header">
-          <h3 id="primaryPersonHeading" class="section-title">
+          <h3 id="primaryTargetHeading" class="section-title">
             <svg viewBox="0 0 24 24" aria-hidden="true" style="fill:#f59e0b;">
-              <path d="M12 2a5 5 0 100 10 5 5 0 000-10zm-7 17a7 7 0 1114 0H5z"/>
+              <path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 18a8 8 0 110-16 8 8 0 010 16z"/>
+              <circle cx="12" cy="12" r="3.5"/>
             </svg>
-            <span>Primary Person & Proximity</span>
+            <span>Primary Target Tracking</span>
           </h3>
           <div style="display:flex; align-items:center; gap:8px;">
-            <span class="section-badge-phase" style="border-color:rgba(245,158,11,0.4); color:#f59e0b; background:rgba(245,158,11,0.08);">Experimental</span>
-            <span id="primaryLockStatusBadge" class="lock-status-badge not-locked">Not Locked</span>
+            <span class="section-badge-phase" style="border-color:rgba(69,217,237,0.4); color:var(--accent-cyan); background:rgba(69,217,237,0.08);">Auto-Lock Active</span>
+            <span id="primaryLockStatusBadge" class="lock-status-badge not-locked">Searching</span>
           </div>
         </div>
 
         <div class="primary-person-body">
           <!-- 4-metric Proximity Grid -->
-          <div class="primary-metrics-grid" role="region" aria-label="Primary person tracking status">
+          <div class="primary-metrics-grid" role="region" aria-label="Primary target tracking status">
             <div class="p-metric-item">
-              <span class="p-metric-label">Target Person</span>
-              <span id="valPrimaryPersonStatus" class="p-metric-val">Not Locked</span>
+              <span class="p-metric-label">Target Object</span>
+              <span id="valPrimaryPersonStatus" class="p-metric-val">No target locked</span>
             </div>
 
             <div class="p-metric-item">
@@ -242,34 +243,34 @@
             </div>
 
             <div class="p-metric-item">
-              <span class="p-metric-label">Confidence</span>
-              <span id="valPrimaryConfidence" class="p-metric-val">—</span>
+              <span class="p-metric-label">Movement Trend</span>
+              <span id="valTargetTrend" class="p-metric-val" style="color:var(--text-secondary);">—</span>
             </div>
 
             <div class="p-metric-item">
-              <span class="p-metric-label">Speech Priority</span>
-              <span id="valPrimaryAnnounceStatus" class="p-metric-val" style="color:var(--text-muted);">Normal Queue</span>
+              <span class="p-metric-label">Confidence</span>
+              <span id="valPrimaryConfidence" class="p-metric-val">—</span>
             </div>
           </div>
 
-          <!-- Quick Select / Tap Controls -->
+          <!-- Quick Select / Override Controls -->
           <div class="primary-controls-wrap">
             <div class="quick-select-header">
-              <span class="quick-select-title">Detected People (Tap viewfinder or select below to lock):</span>
-              <button id="btnUnlockPrimaryPerson" class="btn-unlock-person" style="display:none;" aria-label="Unlock tracked primary person">
+              <span class="quick-select-title">Tracked Objects (Auto-locks to closest · Tap to override):</span>
+              <button id="btnUnlockPrimaryPerson" class="btn-unlock-person" style="display:none;" aria-label="Unlock tracked primary target">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
                 <span>Unlock Target</span>
               </button>
             </div>
-            <div id="detectedPeopleButtons" class="people-quick-select-wrap" aria-label="Quick lock detected people">
-              <span class="no-people-hint">No people detected in frame</span>
+            <div id="detectedPeopleButtons" class="people-quick-select-wrap" aria-label="Visible tracked objects list">
+              <span class="no-people-hint">No objects currently detected</span>
             </div>
           </div>
 
           <!-- Experimental Disclaimer Note -->
           <div class="proximity-disclaimer-note" role="note">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
-            <span><strong>Supplemental Awareness Only:</strong> Relative proximity is experimental and estimated from 2D camera geometry. Does not replace personal judgment, a white cane, or a guide dog. Not a collision avoidance system.</span>
+            <span><strong>Supplemental Awareness Only:</strong> Relative proximity is experimental and estimated from 2D camera geometry. Does not replace personal judgment, a white cane, or a guide dog. Not a collision prediction system.</span>
           </div>
         </div>
       </section>
