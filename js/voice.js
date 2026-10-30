@@ -2,18 +2,17 @@
  * DRISVYA - Intelligent Voice Announcement Engine
  * Full integration with SpeechSynthesis API for Android smartphones & Bluetooth audio.
  * Features:
- * - Natural language screen zone sentences ("Person on your left.", "Chair in front of you.", "Bottle on your right.")
- * - Multi-frame consistency tracking (announces only after multiple consecutive frames)
- * - Object & zone cooldowns preventing frame-by-frame repetition
- * - Disappearance & reappearance lifecycle handling
- * - Single-item freshness queue (no overlapping speech; discards stale announcements)
- * - Master Object Announcements toggle (ON/OFF)
+ * - Robust multi-frame persistence tracking (consecutive frame confirmation)
+ * - 15-second per-object announcement cooldown
+ * - Continuous visibility protection (no repeated announcements while continuously visible)
+ * - 3-second minimum absence threshold required before considering an object a new appearance
+ * - Spatial zone continuity (moving between Left, Centre, Right does NOT re-trigger announcement)
+ * - Single-item freshness speech queue (no overlapping speech; stale announcements discarded)
+ * - Master Object Announcements toggle (ON/OFF) with immediate speech cancellation
  * - Announcement volume control
- * - Clear three-state speech status indicator: Speaking / Waiting / Disabled
- * - English and Hindi voice selection with dialect matching
- * - Audio unlocker on user interaction (resolves Android mobile autoplay restrictions)
- * - Bluetooth audio headset compatibility and status tracking
- * - Preserves working Test Voice button
+ * - Three-state speech status indicator: Speaking / Waiting / Disabled
+ * - English and Hindi voice selection with natural phrasing
+ * - Preserves functional Test Voice button
  */
 
 const COCO_CLASS_DICTIONARY = {
@@ -59,18 +58,20 @@ class VoiceAssistant {
     this.speechPitch = 1.0;
     this.speechVolume = (typeof localStorage !== 'undefined' && parseFloat(localStorage.getItem('drisvya_volume'))) || 1.0;
 
-    // Multi-frame stability tracking & cooldowns
-    this.trackedObjects = new Map(); // key: `${class}_${position}` -> { class, position, consecutiveCount, lastSeenTime, lastAnnouncedTime, announcedInCurrentAppearance, disappeared }
-    this.requiredConsecutiveFrames = 2; // Must be detected in at least 2 consecutive frames for stability
-    this.objectCooldown = 6000; // 6 seconds cooldown per object and zone
-    this.globalAnnouncementCooldown = 2200; // 2.2 seconds minimum gap between speech announcements
+    // Advanced Duplicate Prevention & Tracking State
+    this.trackedObjects = new Map(); // id -> { id, class, bbox, position, consecutiveFrames, firstSeenTime, lastSeenTime, lastAnnouncedTime, announcedInCurrentAppearance, absentSince }
+    this.nextTrackedId = 1;
+    this.requiredConsecutiveFrames = 2; // Must appear in at least 2 consecutive frames for stable confirmation
+    this.objectCooldown = 15000; // Default 15 seconds per-object announcement cooldown
+    this.absenceThreshold = 3000; // Must be absent for at least 3 seconds before being considered a new appearance
+    this.globalAnnouncementCooldown = 2200; // 2.2 seconds minimum gap between separate speech utterances
     this.lastAnnouncementTime = 0;
-    this.pendingAnnouncement = null; // { candidate, timestamp } - queued freshness announcement
+    this.pendingAnnouncement = null; // Single-item freshness queue: { candidate, text, timestamp }
 
-    // Speech state
+    // Speech synthesis state
     this.isSpeaking = false;
     this.isUrgentSpeaking = false;
-    this.activeUtterance = null; // Prevents Chromium garbage collection bug on Android
+    this.activeUtterance = null; // Retain reference to prevent Android Chromium V8 garbage collection mid-speech
     this.isAudioUnlocked = false; // Audio unlock flag
 
     this.lastAnnouncement = {
@@ -99,7 +100,7 @@ class VoiceAssistant {
     // Inspect audio output devices for Bluetooth headsets
     this.checkAudioOutputDevices();
 
-    // Initial state: Waiting (if enabled) or Disabled
+    // Initial status: Waiting (if enabled and unmuted) or Disabled
     this.updateStatusUI(this.isAnnouncementsEnabled && !this.isMuted ? 'Waiting' : 'Disabled');
   }
 
@@ -318,84 +319,145 @@ class VoiceAssistant {
   }
 
   /**
+   * Frame-to-frame matching to track an object instance across consecutive frames
+   */
+  matchDetectionToTracked(pred) {
+    const predClass = (pred.class || '').toLowerCase();
+    const [px, py, pw, ph] = pred.bbox;
+    const pCenterX = px + pw / 2;
+    const pCenterY = py + ph / 2;
+
+    let bestMatch = null;
+    let minDistance = Infinity;
+
+    for (const [id, tracked] of this.trackedObjects.entries()) {
+      if (tracked.class !== predClass) continue;
+
+      const [tx, ty, tw, th] = tracked.bbox;
+      const tCenterX = tx + tw / 2;
+      const tCenterY = ty + th / 2;
+
+      const dx = pCenterX - tCenterX;
+      const dy = pCenterY - tCenterY;
+      const dist = Math.hypot(dx, dy);
+
+      if (dist < minDistance) {
+        minDistance = dist;
+        bestMatch = tracked;
+      }
+    }
+
+    // Match if distance is within reasonable movement bounds (< 700px)
+    if (bestMatch && minDistance < 700) {
+      return bestMatch;
+    }
+
+    return null;
+  }
+
+  /**
    * Process actual predictions from live detection stream
-   * - Tracks consecutive frames for stable detection
-   * - Avoids frame-by-frame repetitive speech
-   * - Respects per-object cooldowns
-   * - Handles disappearance & reappearance
-   * - Prioritizes top relevant detection
-   * - Queues cleanly without speech overlap
+   * - Tracks detected objects across consecutive frames
+   * - Enforces 15-second per-object announcement cooldown
+   * - Prevents repeated announcements while continuously visible
+   * - Requires at least 3 seconds of absence before treating as a new appearance
+   * - Zone shifts do NOT re-trigger speech
+   * - Discards stale announcements and ensures single non-overlapping speech queue
    */
   handleDetections(predictions = []) {
     if (!this.isAnnouncementsEnabled || this.isMuted) return;
 
     const now = Date.now();
-    const currentFrameKeys = new Set();
+    const matchedTrackedIds = new Set();
 
-    // 1. Process detections in current frame
+    // 1. Match or register detections in current frame
     if (predictions && predictions.length > 0) {
       predictions.forEach(pred => {
         const pos = pred.spatial ? pred.spatial.position : 'Centre';
-        const key = `${pred.class}_${pos}`;
-        currentFrameKeys.add(key);
+        let tracked = this.matchDetectionToTracked(pred);
 
-        let tracked = this.trackedObjects.get(key);
         if (!tracked) {
+          // New object instance
+          const id = `obj_${pred.class}_${this.nextTrackedId++}`;
           tracked = {
-            class: pred.class,
+            id,
+            class: (pred.class || '').toLowerCase(),
             position: pos,
-            consecutiveCount: 0,
+            bbox: pred.bbox,
+            score: pred.score || 0,
+            consecutiveFrames: 1,
+            firstSeenTime: now,
             lastSeenTime: now,
             lastAnnouncedTime: 0,
             announcedInCurrentAppearance: false,
-            disappeared: false,
-            bbox: pred.bbox,
-            score: pred.score || 0
+            absentSince: null
           };
-          this.trackedObjects.set(key, tracked);
+          this.trackedObjects.set(id, tracked);
+        } else {
+          // Existing object tracked across frames
+          if (tracked.absentSince !== null) {
+            // Check if it was absent for at least 3 seconds
+            if (now - tracked.absentSince >= this.absenceThreshold) {
+              // It was gone for >= 3 seconds! Reset appearance state for a new appearance
+              tracked.announcedInCurrentAppearance = false;
+              tracked.consecutiveFrames = 1;
+            } else {
+              // Briefly absent (< 3s), maintain continuous appearance
+              tracked.consecutiveFrames++;
+            }
+            tracked.absentSince = null;
+          } else {
+            tracked.consecutiveFrames++;
+          }
+
+          tracked.bbox = pred.bbox;
+          tracked.score = pred.score || 0;
+          tracked.lastSeenTime = now;
+
+          // Update position (moving between Left/Centre/Right does NOT re-trigger announcement)
+          tracked.position = pos;
         }
 
-        // Increment consecutive frames
-        tracked.consecutiveCount++;
-        tracked.lastSeenTime = now;
-        tracked.bbox = pred.bbox;
-        tracked.score = pred.score || 0;
-
-        // If it previously disappeared and came back, reset disappeared flag
-        if (tracked.disappeared) {
-          tracked.disappeared = false;
-        }
+        matchedTrackedIds.add(tracked.id);
       });
     }
 
-    // 2. Mark objects that disappeared (not in current frame for > 1500ms)
-    this.trackedObjects.forEach((tracked, key) => {
-      if (!currentFrameKeys.has(key)) {
-        if (now - tracked.lastSeenTime > 1500) {
-          tracked.consecutiveCount = 0;
+    // 2. Track absent objects
+    // An object is ONLY considered a new appearance after being absent for at least 3 seconds (3000ms)
+    for (const [id, tracked] of this.trackedObjects.entries()) {
+      if (!matchedTrackedIds.has(id)) {
+        if (tracked.absentSince === null) {
+          tracked.absentSince = now;
+        } else if (now - tracked.absentSince >= this.absenceThreshold) {
+          // Confirmed absent for >= 3 seconds
           tracked.announcedInCurrentAppearance = false;
-          tracked.disappeared = true;
+          tracked.consecutiveFrames = 0;
+
+          // Prune very old entries after 45 seconds of continuous absence
+          if (now - tracked.absentSince > 45000) {
+            this.trackedObjects.delete(id);
+          }
         }
       }
-    });
+    }
 
     if (!predictions || predictions.length === 0) return;
 
     // 3. Find candidates eligible for announcement:
-    // - Must meet required consecutive frames
-    // - Must not already be announced during this appearance
-    // - Must have passed the per-object cooldown
+    // a. Must have appeared in at least requiredConsecutiveFrames (default 2)
+    // b. Must not already be announced during this continuous appearance
+    // c. Must have elapsed the 15-second per-object cooldown
     const eligibleCandidates = [];
-    this.trackedObjects.forEach((tracked, key) => {
+    for (const [id, tracked] of this.trackedObjects.entries()) {
       if (
-        currentFrameKeys.has(key) &&
-        tracked.consecutiveCount >= this.requiredConsecutiveFrames &&
+        matchedTrackedIds.has(id) &&
+        tracked.consecutiveFrames >= this.requiredConsecutiveFrames &&
         !tracked.announcedInCurrentAppearance &&
         (now - tracked.lastAnnouncedTime >= this.objectCooldown)
       ) {
         eligibleCandidates.push(tracked);
       }
-    });
+    }
 
     if (eligibleCandidates.length === 0) return;
 
@@ -406,39 +468,45 @@ class VoiceAssistant {
       return areaB - areaA;
     });
 
-    const chosenCandidate = eligibleCandidates[0];
+    const chosen = eligibleCandidates[0];
+    const friendlyName = this.getFriendlyName(chosen.class, this.currentLanguage);
+    const sentence = this.formatPositionSentence(friendlyName, chosen.position, this.currentLanguage);
 
-    // 5. Prevent overlapping speech
-    // If speech is already playing, queue this announcement (max 1 fresh pending announcement)
+    // 5. Speech Queue & Non-Overlapping Execution
+    // If speech is already playing, do NOT interrupt!
     if (this.isSpeaking || (this.synth && this.synth.speaking)) {
-      this.pendingAnnouncement = {
-        candidate: chosenCandidate,
-        timestamp: now
-      };
+      // Do not add identical announcements repeatedly
+      if (!this.pendingAnnouncement || this.pendingAnnouncement.text !== sentence) {
+        this.pendingAnnouncement = {
+          candidate: chosen,
+          text: sentence,
+          timestamp: now
+        };
+      }
       return;
     }
 
-    // If within global cooldown, store in pending queue
+    // If within global minimum gap (2.2s), queue it
     if (now - this.lastAnnouncementTime < this.globalAnnouncementCooldown) {
-      this.pendingAnnouncement = {
-        candidate: chosenCandidate,
-        timestamp: now
-      };
+      if (!this.pendingAnnouncement || this.pendingAnnouncement.text !== sentence) {
+        this.pendingAnnouncement = {
+          candidate: chosen,
+          text: sentence,
+          timestamp: now
+        };
+      }
       return;
     }
 
-    // 6. Speak the chosen candidate
-    this.executeAnnouncement(chosenCandidate, now);
+    // 6. Speak the chosen announcement
+    this.executeAnnouncement(chosen, sentence, now);
   }
 
-  executeAnnouncement(candidate, timestamp) {
+  executeAnnouncement(candidate, sentence, timestamp) {
     candidate.announcedInCurrentAppearance = true;
     candidate.lastAnnouncedTime = timestamp;
     this.lastAnnouncementTime = timestamp;
     this.pendingAnnouncement = null;
-
-    const friendlyName = this.getFriendlyName(candidate.class, this.currentLanguage);
-    const sentence = this.formatPositionSentence(friendlyName, candidate.position, this.currentLanguage);
 
     this.speak(sentence, { priority: 'normal' });
 
@@ -473,7 +541,7 @@ class VoiceAssistant {
       this.synth.cancel();
       this.isSpeaking = false;
     } else if (this.isSpeaking || this.synth.speaking) {
-      // Ordinary announcements must not interrupt an announcement already playing
+      // Ordinary announcements must NEVER interrupt an announcement already playing
       return;
     }
 
@@ -513,14 +581,17 @@ class VoiceAssistant {
       this.activeUtterance = null;
       this.stopVisualizer();
 
-      // Check queued announcement (only play if fresh, < 2500ms)
+      // Check queued announcement (only play if fresh, < 3000ms old)
       if (this.pendingAnnouncement && this.isAnnouncementsEnabled && !this.isMuted) {
         const pending = this.pendingAnnouncement;
         this.pendingAnnouncement = null;
         const now = Date.now();
-        if (now - pending.timestamp < 2500 && pending.candidate) {
-          this.executeAnnouncement(pending.candidate, now);
-          return;
+        if (now - pending.timestamp < 3000 && pending.candidate) {
+          // Respect 15s cooldown on candidate
+          if (now - pending.candidate.lastAnnouncedTime >= this.objectCooldown) {
+            this.executeAnnouncement(pending.candidate, pending.text, now);
+            return;
+          }
         }
       }
 
