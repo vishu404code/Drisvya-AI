@@ -5,82 +5,67 @@
 > **Tagline:** Your World, Understood.  
 > **Category:** AI-Powered Assistive Vision Platform  
 
-DRISVYA is a mobile-first, AI-powered assistive vision web application engineered specifically to help visually impaired and low-vision individuals navigate and perceive their surroundings using Android smartphone hardware and voice assistance.
+DRISVYA is a mobile-first, AI-powered assistive vision platform engineered specifically to help visually impaired and low-vision individuals navigate and perceive their surroundings using smartphone cameras, on-device neural networks, and voice assistance.
 
 ---
 
-## 📌 Phase 1 Scope & Architecture
+## 🚀 Phase 2 Deliverables: Real-Time AI Detection & Camera Coverage
 
-Phase 1 establishes the **frontend foundation, accessible design system, and Android-optimized interface**:
+Phase 2 introduces **real-time on-device neural vision and enhanced camera coverage** while strictly preserving the accessible dashboard:
 
-- **Official Brand Identity:** Consistent DRISVYA branding with a minimal vision-inspired symbol logo.
-- **No Paid APIs or Cloud Dependencies:** Runs 100% client-side via native Web APIs (Web Speech, Web Audio, MediaDevices, Haptic Vibration).
-- **Zero Fake Detection:** Strictly avoids fabricated AI object detection or fake camera simulation. The camera lifecycle is real, and the neural network pipeline is cleanly pre-wired for TensorFlow.js and COCO-SSD in Phase 2.
-- **Android Smartphone Optimization:** Built for thumb reach, safe-area insets, fluid typography, and ≥ 48px touch targets, accompanied by an ergonomic sticky action bar.
+### 1. Real-Time On-Device AI Object Detection
+- **TensorFlow.js + COCO-SSD:** Runs client-side neural inference using the lightweight `lite_mobilenet_v2` backbone.
+- **Low Latency & Battery Throttling:** Non-overlapping inference loop throttled to ~11 FPS (90ms) to prevent overheating and battery drain on Android smartphones, while maintaining 60 FPS UI rendering.
+- **Accurate Bounding Boxes:** High-contrast color-coded bounding boxes (green for people, amber for vehicles, cyan for general objects) with corner brackets and spatial labels.
+- **Coordinate Projection:** Mathematical coordinate scaling that maps full video frames to `object-fit: cover` container viewports with sub-pixel alignment.
+- **Common Objects Supported:** Person, chair, bottle, cup, laptop, cell phone, car, bus, bicycle, table, dog, cat, and 70+ COCO-SSD classes.
+
+### 2. Multi-Camera & Wide-Angle Lens Support
+- **Default Rear-Facing Camera:** Initializes using `facingMode: { ideal: "environment" }`.
+- **Hardware Lens Discovery:** Enumerates `videoinput` devices via `navigator.mediaDevices.enumerateDevices()`, discovering secondary back lenses and ultra-wide cameras (e.g. 0.5x / 0.6x).
+- **Camera Selection Control:** When multiple camera devices are available, presents an accessible lens selector dropdown (`#cameraSelectDropdown`).
+- **Hardware Ultra-Wide Zoom:** Queries `track.getCapabilities().zoom`. If `zoom.min < 1.0`, provides an instant `[0.5x Wide] / [1.0x Normal]` toggle applying physical zoom constraints without software distortion.
+- **Honest Physical Scope:** Transparently reflects hardware capabilities without falsely claiming software can widen a fixed sensor's physical FOV.
+
+### 3. Spatial Detection & Narration
+- **Horizontal Positioning:** Computes horizontal bounding box centers:
+  - **Left** (`cx < 35%` of frame) — Hindi: *बाईं ओर*
+  - **Centre** (`35% ≤ cx ≤ 65%` of frame) — Hindi: *सामने*
+  - **Right** (`cx > 65%` of frame) — Hindi: *दाईं ओर*
+- **Visual Relative Proximity:** Categorizes visual size into `Close`, `Medium`, and `Distant` based on relative bounding box area, strictly avoiding fake monocular distance measurements.
+- **Intelligent Voice Narration:** Narrates primary obstacles and people in path (cooldown 2.8s to avoid speech overlap) in English and Hindi.
+- **Haptic Alerts:** Sends tactile vibration cues (`navigator.vibrate`) when an obstacle or person is detected directly in the `Centre` zone.
 
 ---
 
-## 🎨 Visual Design & Theme
+## 🎨 Visual Design & Android Optimization
 
-- **Background:** Deep navy (`#07111f`, `#0b1a2d`, `#0d1e33`).
-- **Accents:** Subtle cyan glow (`#45d9ed`, `#38bdf8`, `#22d3ee`).
-- **Typography:** High legibility with fluid scaling and clean visual hierarchy.
-- **Viewfinder HUD:** Assistive framing brackets, center optical reticle, and scanning beam.
+- **Palette:** Deep navy backgrounds (`#07111f`, `#0b1a2d`, `#0d1e33`) with glowing cyan accents (`#45d9ed`, `#38bdf8`).
+- **Accessibility:** Instant **High Contrast** mode (pure black `#000000` & vibrant yellow `#ffff00`), **Large Text** ($125\%$ scaling), voice alerts, and haptic vibration.
+- **Android Touch Ergonomics:** Minimum $\ge 48\text{px}$ touch targets, sticky bottom action bar for one-thumb reach, and safe-area inset protection.
+- **Safety Disclaimer:** Prominent notice stating that DRISVYA supplements and **does not replace a white cane or guide dog**.
 
 ---
 
-## 📱 Main Screen Components
+## 📂 Project Architecture
 
-### 1. Header
-- **Minimal Vision Logo:** Precision SVG icon representing optical perception and focal alignment.
-- **Brand Title & Category:** DRISVYA with *Assistive Vision* badge.
-- **Connection Status:** Live pill indicator (`Online • Ready` / `Offline Mode`).
-- **Settings Trigger:** Direct access to DRISVYA Preferences.
-
-### 2. Hero Section
-- **Heading:** *"Your World, Understood."*
-- **Tagline Badge:** *AI-Powered Assistive Vision Platform*
-- **Listen to Overview:** Audio summary vocalized in the selected language.
-
-### 3. Main Camera Card & Viewfinder HUD
-- **Real Video Feed:** Connects to device rear camera (`facingMode: 'environment'`).
-- **Overlaid Canvas (`#overlayCanvas`):** Pre-wired for TensorFlow.js and COCO-SSD bounding box rendering.
-- **Prominent START ASSISTANCE Button:** 64px tall, high-contrast cyan-blue CTA.
-- **Camera Status Strip:** Reports live hardware states honestly.
-- **Camera Permission Instructions:** Step-by-step guidance for Android Chrome permissions and chest-height device orientation.
-
-### 4. Detection Summary (Standby)
-- **Objects Detected:** Count indicator (0 in Standby).
-- **People Detected:** Count indicator (0 in Standby).
-- **Vehicles Detected:** Count indicator (0 in Standby).
-- **Nearest Obstacle:** Proximity card (`None within range` in Standby).
-- **Notice:** Clear notice that AI models plug in during Phase 2; no fake data is displayed.
-
-### 5. Voice Assistant Control Panel
-- **Status & Visualizer:** Real-time CSS audio waveform reflecting speech activity.
-- **Language Selection:** Instant toggle between **English** (`en-US/IN`) and **हिन्दी (Hindi)** (`hi-IN`).
-- **Voice Speed Presets:** One-tap speed buttons: **Slow** (0.8x), **Normal** (1.0x), **Fast** (1.2x).
-- **Mute / Unmute:** Dedicated control with acoustic feedback.
-- **Repeat Announcement:** Instant audio repetition of the latest announcement.
-
-### 6. Accessibility Settings
-Four instant toggles saved to `localStorage`:
-1. **High Contrast:** Pure black background (`#000000`), vivid yellow borders (`#ffff00`), and white text.
-2. **Large Text:** 125% typography scale with automatic single-column layout adjustment.
-3. **Voice Alerts:** Toggle spoken audio descriptions.
-4. **Haptic Vibration:** Tactile vibration cues (`navigator.vibrate`) on Android.
-
-### 7. Detection History & Timeline
-- Real-time activity and announcement history with timestamps.
-- **Proper Empty State:** Informative empty state card with vision reticle icon: *"No detections recorded yet. Start assistance to scan your surroundings in real-time."*
-- **Clear Button:** Resets the history at any time.
-
-### 8. Safety Disclaimer
-- Prominent safety disclaimer card:  
-  *“Important Safety Disclaimer: DRISVYA is an assistive preview platform designed to supplement environmental awareness. It does NOT replace a white cane or guide dog. Always use standard primary mobility aids, and proceed with caution in hazardous or unfamiliar environments.”*
-
-### 9. Sticky Android Mobile Action Bar
-- Fixed at the bottom of Android smartphone screens for effortless one-handed thumb access to **START ASSISTANCE** and **Repeat Audio**.
+```
+Drisvya AI/
+├── index.html              # Accessible HTML5 with ARIA landmarks & overlay canvas
+├── css/
+│   ├── style.css           # Navy theme tokens, typography & Android mobile layout
+│   ├── components.css      # Viewfinder HUD, lens selector, voice panel & empty states
+│   └── accessibility.css   # High contrast mode, large text mode & reduced motion
+├── js/
+│   ├── ai.js               # TensorFlow.js & COCO-SSD loading, inference & spatial math
+│   ├── camera.js           # MediaDevices lifecycle, multi-camera, zoom & bounding boxes
+│   ├── voice.js            # Web Speech API engine (English + Hindi, speed presets, mute, repeat)
+│   ├── accessibility.js    # A11y manager (contrast, large text, vibration & localStorage)
+│   ├── sound.js            # Web Audio API synthesized earcon feedback
+│   └── app.js              # Coordinator, mobile sticky bar sync, and keyboard shortcuts
+├── test_runner.js          # Automated verification test suite (Phase 2 audit)
+└── README.md               # Complete project documentation & guide
+```
 
 ---
 
@@ -90,7 +75,7 @@ Four instant toggles saved to `localStorage`:
 |:---:|:---|
 | <kbd>Space</kbd> | Toggle Assistance (Start / Stop) |
 | <kbd>M</kbd> | Mute / Unmute Voice Assistant |
-| <kbd>R</kbd> | Repeat Last Spoken Audio |
+| <kbd>R</kbd> | Repeat Last Spoken Announcement |
 | <kbd>H</kbd> | Toggle High Contrast Mode |
 | <kbd>L</kbd> | Toggle Large Text Mode |
 | <kbd>S</kbd> | Open DRISVYA Settings Dialog |
@@ -98,38 +83,15 @@ Four instant toggles saved to `localStorage`:
 
 ---
 
-## 🚀 How to Run the Application
+## 🚀 Running & Testing Locally
 
-Because camera access (`getUserMedia`) requires a secure origin (`localhost` or `https`), serve via a local HTTP server:
-
-### Option A: Using Python
 ```bash
+# Navigate to the workspace
 cd "Drisvya AI"
-python3 -m http.server 8080
+
+# Start local server (Camera requires localhost or HTTPS)
+python3 -m http.server 8080 --bind 0.0.0.0
 ```
-Open **`http://localhost:8080`** in your browser.
-
-### Option B: Mobile Testing on Android Smartphone
-1. Connect your Android smartphone to the same Wi-Fi network as your computer.
-2. Start the server:
-   ```bash
-   python3 -m http.server 8080 --bind 0.0.0.0
-   ```
-3. Open Google Chrome on your Android phone and visit:
-   `http://<YOUR_COMPUTER_LOCAL_IP>:8080`
-
-### Option C: Run Verification Test Runner
-```bash
-node test_runner.js
-```
-*(All 10 verification test suites pass with 0 errors).*
-
----
-
-## 🔮 Phase 2 Roadmap: AI Vision Model Integration
-
-When ready for Phase 2:
-1. Load `@tensorflow/tfjs` and `@tensorflow-models/coco-ssd`.
-2. Connect the detection model to `cameraController.registerPhase2Model(async (video) => { ... })`.
-3. Draw real bounding boxes using `cameraController.drawBoundingBoxes(predictions)`.
-4. Update live counts via `cameraController.setDetectionResults({ objects, people, vehicles, nearest })`.
+- **Desktop Browser:** [http://localhost:8080](http://localhost:8080)
+- **Android Smartphone:** Open `http://<YOUR_COMPUTER_IP>:8080` in Chrome on your phone.
+- **Run Audit Suite:** `node test_runner.js` *(all verification suites pass with 0 errors)*.

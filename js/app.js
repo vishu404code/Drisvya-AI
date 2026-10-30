@@ -219,6 +219,11 @@ class DrisvyaApp {
   renderHistoryList() {
     if (!this.historyListEl || !this.emptyStateEl) return;
 
+    // When assistance is active and objects are detected, let cameraController manage live objects view
+    if (window.cameraController && window.cameraController.isActive && window.cameraController.currentPredictions.length > 0) {
+      return;
+    }
+
     if (this.activities.length === 0) {
       this.historyListEl.innerHTML = '';
       this.emptyStateEl.style.display = 'flex';

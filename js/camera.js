@@ -1,7 +1,7 @@
 /**
- * DRISVYA - Camera Lifecycle & Assistance Controller
- * Phase 1: Real media handling, viewfinder HUD, honest permission management.
- * Strictly avoids fake AI simulation. Architecture is pre-wired for TensorFlow.js & COCO-SSD.
+ * DRISVYA - Camera Lifecycle, Wide-Angle Lens Controller & Real-Time AI Detection
+ * Phase 2: Live TensorFlow.js & COCO-SSD integration, multi-camera & ultra-wide lens support,
+ * pixel-perfect bounding box alignment, spatial position narration (Left/Centre/Right).
  */
 
 class CameraController {
@@ -18,7 +18,20 @@ class CameraController {
     this.stickyBtnEl = null;
     this.hudBadgeEl = null;
 
-    // Detection state (ready for Phase 2 models)
+    // Camera hardware & lens management
+    this.availableDevices = [];
+    this.selectedDeviceId = null;
+    this.isUltraWideActive = false;
+    this.activeTrack = null;
+
+    // AI Detection state
+    this.isDetecting = false;
+    this.lastDetectionTime = 0;
+    this.detectionInterval = 90; // ~11 FPS inference to optimize battery & thermal profile on mobile
+    this.animFrameId = null;
+
+    // Active detection results
+    this.currentPredictions = [];
     this.detections = {
       objects: 0,
       people: 0,
@@ -26,9 +39,10 @@ class CameraController {
       nearest: "None within range"
     };
 
-    // Phase 2 hook callback
-    this.onFrameCallback = null;
-    this.animFrameId = null;
+    // Voice narration throttle & state tracking
+    this.lastSpokenKey = '';
+    this.lastSpokenTime = 0;
+    this.spokenCooldown = 2800; // 2.8s speech cooldown to prevent audio overlap
   }
 
   init() {
@@ -51,7 +65,140 @@ class CameraController {
       this.stickyBtnEl.addEventListener('click', () => this.toggleAssistance());
     }
 
+    this.bindCameraSelectionControls();
     this.updateDetectionUI();
+  }
+
+  /**
+   * Enumerate and initialize camera devices (Detecting rear cameras and ultra-wide candidates)
+   */
+  async discoverCameraDevices() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      this.availableDevices = devices.filter(d => d.kind === 'videoinput');
+      this.renderDeviceSelectorUI();
+    } catch (e) {
+      console.warn("[DRISVYA Camera] Device enumeration error:", e);
+    }
+  }
+
+  bindCameraSelectionControls() {
+    const selectEl = document.getElementById('cameraSelectDropdown');
+    const ultraWideBtn = document.getElementById('btnToggleUltraWide');
+
+    if (selectEl) {
+      selectEl.addEventListener('change', async (e) => {
+        const deviceId = e.target.value;
+        if (deviceId && deviceId !== this.selectedDeviceId) {
+          this.selectedDeviceId = deviceId;
+          if (this.isActive) {
+            await this.restartWithDevice(deviceId);
+          }
+        }
+      });
+    }
+
+    if (ultraWideBtn) {
+      ultraWideBtn.addEventListener('click', async () => {
+        await this.toggleUltraWideZoom();
+      });
+    }
+  }
+
+  renderDeviceSelectorUI() {
+    const container = document.getElementById('cameraSelectContainer');
+    const selectEl = document.getElementById('cameraSelectDropdown');
+    const ultraWideBtn = document.getElementById('btnToggleUltraWide');
+
+    if (!selectEl) return;
+
+    // Show device selector if more than 1 camera is available
+    if (this.availableDevices.length > 1) {
+      if (container) container.style.display = 'flex';
+      selectEl.innerHTML = '';
+
+      let backCameraIndex = 1;
+      let ultraWideCandidate = null;
+
+      this.availableDevices.forEach((device) => {
+        const option = document.createElement('option');
+        option.value = device.deviceId;
+        const label = device.label.toLowerCase();
+
+        let friendlyName = `Camera ${selectEl.options.length + 1}`;
+        if (label.includes('front') || label.includes('user')) {
+          friendlyName = 'Front Camera';
+        } else if (label.includes('ultra') || label.includes('wide') || label.includes('0.5') || label.includes('0.6')) {
+          friendlyName = 'Ultra-Wide Camera (0.5x)';
+          ultraWideCandidate = device.deviceId;
+        } else if (label.includes('back') || label.includes('rear') || label.includes('environment')) {
+          friendlyName = backCameraIndex === 1 ? 'Main Rear Camera' : `Rear Camera ${backCameraIndex}`;
+          backCameraIndex++;
+        }
+
+        option.textContent = friendlyName;
+        if (device.deviceId === this.selectedDeviceId) {
+          option.selected = true;
+        }
+        selectEl.appendChild(option);
+      });
+
+      // If user has not picked a device yet, prefer rear or ultra-wide
+      if (!this.selectedDeviceId && ultraWideCandidate) {
+        // Can be switched when user requests
+      }
+    } else {
+      if (container) container.style.display = 'none';
+    }
+
+    // Check zoom capability on active track for Android digital/optical wide-angle toggle
+    if (this.activeTrack && this.activeTrack.getCapabilities) {
+      const caps = this.activeTrack.getCapabilities();
+      if (caps.zoom && ultraWideBtn) {
+        ultraWideBtn.style.display = 'inline-flex';
+        ultraWideBtn.textContent = this.isUltraWideActive ? "1.0x Normal" : `${caps.zoom.min < 1 ? caps.zoom.min : 0.5}x Wide`;
+      }
+    }
+  }
+
+  /**
+   * Toggle hardware zoom to ultra-wide (if supported by Android Camera2 API)
+   */
+  async toggleUltraWideZoom() {
+    if (!this.activeTrack || !this.activeTrack.getCapabilities) return;
+    const caps = this.activeTrack.getCapabilities();
+    const btn = document.getElementById('btnToggleUltraWide');
+
+    if (!caps.zoom) {
+      if (window.voiceAssistant) {
+        window.voiceAssistant.speak("Hardware zoom control is not supported by this camera sensor.");
+      }
+      return;
+    }
+
+    try {
+      this.isUltraWideActive = !this.isUltraWideActive;
+      const targetZoom = this.isUltraWideActive ? (caps.zoom.min || 1.0) : 1.0;
+      await this.activeTrack.applyConstraints({
+        advanced: [{ zoom: targetZoom }]
+      });
+
+      if (btn) {
+        btn.classList.toggle('active', this.isUltraWideActive);
+        btn.textContent = this.isUltraWideActive ? "1.0x Normal" : "0.5x Wide";
+      }
+
+      const msg = this.isUltraWideActive ? "Switched to ultra-wide lens." : "Switched to standard lens.";
+      if (window.voiceAssistant) {
+        window.voiceAssistant.speak(msg);
+      }
+      if (window.app) {
+        window.app.logActivity(msg, "camera");
+      }
+    } catch (e) {
+      console.warn("[DRISVYA Camera] Wide zoom constraint failed:", e);
+    }
   }
 
   async toggleAssistance() {
@@ -91,7 +238,7 @@ class CameraController {
     }
 
     try {
-      // Request real rear/environment camera on Android
+      // Build constraints - default to environment (rear-facing) camera
       const constraints = {
         video: {
           facingMode: { ideal: "environment" },
@@ -101,22 +248,24 @@ class CameraController {
         audio: false
       };
 
+      if (this.selectedDeviceId) {
+        constraints.video.deviceId = { exact: this.selectedDeviceId };
+        delete constraints.video.facingMode;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       this.stream = stream;
+      this.activeTrack = stream.getVideoTracks()[0] || null;
 
       if (this.videoEl) {
         this.videoEl.srcObject = stream;
         await new Promise((resolve) => {
+          if (this.videoEl.readyState >= 1) return resolve();
           this.videoEl.onloadedmetadata = () => resolve();
+          setTimeout(resolve, 500); // Safety timeout fallback
         });
         await this.videoEl.play();
         this.videoEl.classList.add('active');
-
-        // Adjust canvas dimensions to match video stream
-        if (this.canvasEl) {
-          this.canvasEl.width = this.videoEl.videoWidth || 640;
-          this.canvasEl.height = this.videoEl.videoHeight || 480;
-        }
       }
 
       if (this.placeholderEl) {
@@ -125,31 +274,44 @@ class CameraController {
 
       this.isActive = true;
       this.updateStateUI(true);
-      this.setStatus("Camera Active • Feed Live (Phase 2 Ready)");
 
-      const announceText = window.voiceAssistant && window.voiceAssistant.currentLanguage === 'hi'
-        ? "सहायता सक्रिय है। कैमरा चालू है। फेज़ 2 एआई मॉडल स्टैंडबाय पर है।"
-        : "Assistance active. Camera feed live. AI vision engine standby for Phase 2.";
+      // Discover hardware devices now that permission is granted
+      await this.discoverCameraDevices();
 
-      if (window.voiceAssistant) {
-        window.voiceAssistant.speak(announceText);
+      // Load AI Model if not loaded yet
+      this.setStatus("Loading AI Detection Model...");
+      try {
+        if (window.aiEngine) {
+          await window.aiEngine.loadModel();
+        }
+        this.setStatus("AI Detection Live • System Active");
+        
+        const announceText = window.voiceAssistant && window.voiceAssistant.currentLanguage === 'hi'
+          ? "सहायता शुरू हो गई है। कैमरा और एआई डिटेक्शन सक्रिय हैं।"
+          : "Assistance active. Real-time object detection ready.";
+
+        if (window.voiceAssistant) {
+          window.voiceAssistant.speak(announceText);
+        }
+      } catch (modelErr) {
+        console.error("AI Model failed to load:", modelErr);
+        this.setStatus("Camera Live • AI Model Error");
+        if (window.voiceAssistant) {
+          window.voiceAssistant.speak("Camera is live, but AI model failed to load. Please check network connection.");
+        }
       }
 
-      if (window.app) {
-        window.app.logActivity("Assistance active. Camera stream connected.", "camera");
-      }
-
-      // Start frame capture loop hook for Phase 2
-      this.startFrameLoop();
+      // Start continuous detection loop
+      this.startDetectionLoop();
 
     } catch (err) {
-      console.warn("Camera access failed or denied:", err);
+      console.warn("[DRISVYA Camera] Camera access failed:", err);
       this.isActive = false;
       this.updateStateUI(false);
 
       let msg = "Camera access was denied or unavailable.";
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        msg = "Camera permission denied. On Android Chrome: Tap lock/tune icon in URL bar → Permissions → Allow Camera.";
+        msg = "Camera permission denied. On Android: Tap lock icon in address bar → Permissions → Allow Camera.";
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
         msg = "No video camera detected on this device.";
       }
@@ -162,6 +324,17 @@ class CameraController {
         window.app.logActivity(msg, "alert");
       }
     }
+  }
+
+  async restartWithDevice(deviceId) {
+    if (!this.isActive) return;
+    // Stop current stream
+    if (this.stream) {
+      this.stream.getTracks().forEach(t => t.stop());
+    }
+    this.selectedDeviceId = deviceId;
+    this.isActive = false;
+    await this.startAssistance();
   }
 
   async stopAssistance() {
@@ -179,10 +352,13 @@ class CameraController {
       this.animFrameId = null;
     }
 
-    // Stop real camera stream tracks
+    this.isDetecting = false;
+
+    // Release camera hardware tracks
     if (this.stream) {
       this.stream.getTracks().forEach(track => track.stop());
       this.stream = null;
+      this.activeTrack = null;
     }
 
     if (this.videoEl) {
@@ -200,12 +376,23 @@ class CameraController {
     }
 
     this.isActive = false;
+    this.currentPredictions = [];
     this.updateStateUI(false);
     this.setStatus("Camera Inactive • Ready to Connect");
 
+    // Reset detection counts
+    this.detections = {
+      objects: 0,
+      people: 0,
+      vehicles: 0,
+      nearest: "None within range"
+    };
+    this.updateDetectionUI();
+    this.renderLiveDetectionList([]);
+
     const stopMsg = window.voiceAssistant && window.voiceAssistant.currentLanguage === 'hi'
       ? "सहायता रोक दी गई है।"
-      : "Assistance stopped. Camera inactive.";
+      : "Assistance stopped. Detection session closed.";
 
     if (window.voiceAssistant) {
       window.voiceAssistant.speak(stopMsg);
@@ -214,6 +401,273 @@ class CameraController {
     if (window.app) {
       window.app.logActivity("Assistance stopped. Camera session closed.", "camera");
     }
+  }
+
+  /**
+   * Main real-time detection loop
+   * Runs inference asynchronously with throttling to protect battery & maintain 60fps UI
+   */
+  startDetectionLoop() {
+    const loop = async (timestamp) => {
+      if (!this.isActive) return;
+
+      // Check if model is ready and throttle inference interval
+      if (window.aiEngine && window.aiEngine.isReady && !this.isDetecting) {
+        if (timestamp - this.lastDetectionTime >= this.detectionInterval) {
+          this.lastDetectionTime = timestamp;
+          this.isDetecting = true;
+
+          try {
+            const predictions = await window.aiEngine.detect(this.videoEl);
+            if (this.isActive) {
+              this.currentPredictions = predictions;
+              this.processDetectionResults(predictions);
+              this.drawBoundingBoxes(predictions);
+            }
+          } catch (e) {
+            console.warn("[DRISVYA AI] Detection cycle error:", e);
+          } finally {
+            this.isDetecting = false;
+          }
+        }
+      }
+
+      this.animFrameId = requestAnimationFrame(loop);
+    };
+
+    this.animFrameId = requestAnimationFrame(loop);
+  }
+
+  /**
+   * Process predictions, update counts, update proximity, and voice announce
+   */
+  processDetectionResults(predictions) {
+    if (!predictions) predictions = [];
+
+    const people = predictions.filter(p => p.class === 'person');
+    const vehicles = predictions.filter(p => ['car', 'bus', 'truck', 'motorcycle', 'bicycle', 'train'].includes(p.class));
+
+    // Find nearest / largest object in view
+    let nearestText = "None within range";
+    if (predictions.length > 0) {
+      // Sort by bounding box area (largest relative object is nearest to camera)
+      const sortedByArea = [...predictions].sort((a, b) => (b.bbox[2] * b.bbox[3]) - (a.bbox[2] * a.bbox[3]));
+      const top = sortedByArea[0];
+      const posLabel = top.spatial ? top.spatial.position : 'Centre';
+      const proxLabel = top.proximity ? top.proximity.level : 'Medium';
+      nearestText = `${top.class.toUpperCase()} (${posLabel} · ${proxLabel})`;
+    }
+
+    this.detections = {
+      objects: predictions.length,
+      people: people.length,
+      vehicles: vehicles.length,
+      nearest: nearestText
+    };
+
+    this.updateDetectionUI();
+    this.renderLiveDetectionList(predictions);
+    this.announceCriticalObstacles(predictions);
+  }
+
+  /**
+   * Render real-time recognized items in the Detection List
+   */
+  renderLiveDetectionList(predictions) {
+    const listEl = document.getElementById('detectionHistoryList');
+    const emptyStateEl = document.getElementById('historyEmptyState');
+
+    if (!listEl || !emptyStateEl) return;
+
+    if (predictions.length === 0) {
+      listEl.innerHTML = '';
+      emptyStateEl.style.display = 'flex';
+      return;
+    }
+
+    emptyStateEl.style.display = 'none';
+    listEl.innerHTML = '';
+
+    predictions.slice(0, 6).forEach(pred => {
+      const li = document.createElement('li');
+      li.className = 'history-item';
+
+      const spatialBadge = pred.spatial ? pred.spatial.position.toUpperCase() : 'CENTRE';
+      const scorePercent = Math.round(pred.score * 100);
+      const proximity = pred.proximity ? pred.proximity.level : 'In view';
+
+      li.innerHTML = `
+        <div class="history-item-icon">
+          <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 18a8 8 0 110-16 8 8 0 010 16z"/></svg>
+        </div>
+        <div class="history-item-content">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span class="history-item-title" style="text-transform:capitalize; font-weight:800;">${pred.class}</span>
+            <span style="font-size:10px; font-weight:700; color:var(--accent-cyan); background:rgba(69,217,237,0.12); padding:2px 6px; border-radius:999px;">
+              ${spatialBadge} · ${scorePercent}%
+            </span>
+          </div>
+          <span class="history-item-meta">${proximity} · Real-time bounding box tracked</span>
+        </div>
+      `;
+      listEl.appendChild(li);
+    });
+  }
+
+  /**
+   * Intelligent speech narration of detected objects (throttled)
+   */
+  announceCriticalObstacles(predictions) {
+    if (!predictions.length || !window.voiceAssistant) return;
+    const now = Date.now();
+    if (now - this.lastSpokenTime < this.spokenCooldown) return;
+
+    // Prioritize largest/nearest object
+    const sorted = [...predictions].sort((a, b) => (b.bbox[2] * b.bbox[3]) - (a.bbox[2] * a.bbox[3]));
+    const primary = sorted[0];
+
+    const pos = primary.spatial ? primary.spatial.position : 'Centre';
+    const speechKey = `${primary.class}_${pos}`;
+
+    // Avoid repeating same object/position within 4 seconds unless it changed
+    if (speechKey === this.lastSpokenKey && now - this.lastSpokenTime < 4500) {
+      return;
+    }
+
+    this.lastSpokenKey = speechKey;
+    this.lastSpokenTime = now;
+
+    const isHindi = window.voiceAssistant.currentLanguage === 'hi';
+    let message = '';
+
+    if (isHindi) {
+      const posHi = primary.spatial ? primary.spatial.positionHi : 'सामने';
+      message = `${posHi} ${primary.class} दिखाई दे रहा है।`;
+    } else {
+      if (pos === 'Centre') {
+        message = `${primary.class} ahead in centre.`;
+      } else {
+        message = `${primary.class} detected on your ${pos.toLowerCase()}.`;
+      }
+    }
+
+    window.voiceAssistant.speak(message);
+
+    // Haptic feedback pulse on person or obstacle directly in centre
+    if (pos === 'Centre' && window.a11yManager) {
+      window.a11yManager.vibrate([60, 40, 60]);
+    }
+
+    if (window.app) {
+      window.app.logActivity(`${primary.class} detected · ${pos}`, "voice");
+    }
+  }
+
+  /**
+   * Draw high-contrast bounding boxes with exact object-fit: cover coordinate projection
+   */
+  drawBoundingBoxes(predictions) {
+    if (!this.ctx || !this.canvasEl || !this.videoEl) return;
+
+    const containerW = this.canvasEl.clientWidth;
+    const containerH = this.canvasEl.clientHeight;
+    if (!containerW || !containerH) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    if (this.canvasEl.width !== containerW * dpr || this.canvasEl.height !== containerH * dpr) {
+      this.canvasEl.width = containerW * dpr;
+      this.canvasEl.height = containerH * dpr;
+    }
+
+    this.ctx.save();
+    this.ctx.scale(dpr, dpr);
+    this.ctx.clearRect(0, 0, containerW, containerH);
+
+    if (!predictions || !predictions.length) {
+      this.ctx.restore();
+      return;
+    }
+
+    const vW = this.videoEl.videoWidth || 1;
+    const vH = this.videoEl.videoHeight || 1;
+
+    // Exact object-fit: cover mapping
+    const scale = Math.max(containerW / vW, containerH / vH);
+    const renderW = vW * scale;
+    const renderH = vH * scale;
+    const offsetX = (containerW - renderW) / 2;
+    const offsetY = (containerH - renderH) / 2;
+
+    predictions.forEach(pred => {
+      const [bx, by, bw, bh] = pred.bbox;
+
+      // Projected coordinates on displayed screen
+      const drawX = bx * scale + offsetX;
+      const drawY = by * scale + offsetY;
+      const drawW = bw * scale;
+      const drawH = bh * scale;
+
+      // Color coding: Cyan for objects, Green for people, Amber for vehicles
+      let strokeColor = '#45d9ed';
+      if (pred.class === 'person') strokeColor = '#34d399';
+      else if (['car', 'bus', 'truck', 'motorcycle', 'bicycle'].includes(pred.class)) strokeColor = '#fbbf24';
+
+      // Draw bounding rectangle
+      this.ctx.strokeStyle = strokeColor;
+      this.ctx.lineWidth = 2.5;
+      this.ctx.shadowColor = strokeColor;
+      this.ctx.shadowBlur = 8;
+      this.ctx.strokeRect(drawX, drawY, drawW, drawH);
+      this.ctx.shadowBlur = 0;
+
+      // Corner target brackets
+      const cornerLen = Math.min(14, drawW / 3, drawH / 3);
+      this.ctx.lineWidth = 4;
+      this.ctx.beginPath();
+      // TL
+      this.ctx.moveTo(drawX, drawY + cornerLen);
+      this.ctx.lineTo(drawX, drawY);
+      this.ctx.lineTo(drawX + cornerLen, drawY);
+      // TR
+      this.ctx.moveTo(drawX + drawW - cornerLen, drawY);
+      this.ctx.lineTo(drawX + drawW, drawY);
+      this.ctx.lineTo(drawX + drawW, drawY + cornerLen);
+      // BL
+      this.ctx.moveTo(drawX, drawY + drawH - cornerLen);
+      this.ctx.lineTo(drawX, drawY + drawH);
+      this.ctx.lineTo(drawX + cornerLen, drawY + drawH);
+      // BR
+      this.ctx.moveTo(drawX + drawW - cornerLen, drawY + drawH);
+      this.ctx.lineTo(drawX + drawW, drawY + drawH);
+      this.ctx.lineTo(drawX + drawW, drawY + drawH - cornerLen);
+      this.ctx.stroke();
+
+      // Label Pill
+      const score = Math.round(pred.score * 100);
+      const pos = pred.spatial ? pred.spatial.position.toUpperCase() : 'CENTRE';
+      const labelText = `${pred.class.toUpperCase()} ${score}% · ${pos}`;
+
+      this.ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      const textMetrics = this.ctx.measureText(labelText);
+      const pillW = textMetrics.width + 14;
+      const pillH = 20;
+      const pillY = Math.max(4, drawY - pillH - 2);
+
+      // Pill Background
+      this.ctx.fillStyle = 'rgba(7, 17, 31, 0.9)';
+      this.ctx.beginPath();
+      this.ctx.roundRect(drawX, pillY, pillW, pillH, 4);
+      this.ctx.fill();
+      this.ctx.strokeStyle = strokeColor;
+      this.ctx.lineWidth = 1;
+      this.ctx.stroke();
+
+      // Pill Text
+      this.ctx.fillStyle = '#ffffff';
+      this.ctx.fillText(labelText, drawX + 7, pillY + 14);
+    });
+
+    this.ctx.restore();
   }
 
   updateStateUI(active) {
@@ -229,7 +683,6 @@ class CameraController {
       }
     }
 
-    // Sync Main CTA
     if (this.toggleBtnEl) {
       this.toggleBtnEl.classList.toggle('active', active);
       this.toggleBtnEl.setAttribute('aria-pressed', active ? 'true' : 'false');
@@ -239,7 +692,6 @@ class CameraController {
       }
     }
 
-    // Sync Sticky Mobile CTA
     if (this.stickyBtnEl) {
       this.stickyBtnEl.classList.toggle('active', active);
       this.stickyBtnEl.setAttribute('aria-pressed', active ? 'true' : 'false');
@@ -256,7 +708,6 @@ class CameraController {
     }
   }
 
-  // Update detection summary UI
   updateDetectionUI() {
     const objEl = document.getElementById('countObjects');
     const peopleEl = document.getElementById('countPeople');
@@ -267,55 +718,6 @@ class CameraController {
     if (peopleEl) peopleEl.textContent = this.detections.people;
     if (vehiclesEl) vehiclesEl.textContent = this.detections.vehicles;
     if (nearestEl) nearestEl.textContent = this.detections.nearest;
-  }
-
-  // Phase 2 Integration Hook: call this when Phase 2 models detect objects
-  setDetectionResults(results) {
-    if (results) {
-      this.detections = { ...this.detections, ...results };
-      this.updateDetectionUI();
-    }
-  }
-
-  // Draw predictions onto overlay canvas (Phase 2 feature hook)
-  drawBoundingBoxes(predictions = []) {
-    if (!this.ctx || !this.canvasEl) return;
-    this.ctx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
-    if (!predictions.length) return;
-
-    predictions.forEach(p => {
-      const [x, y, w, h] = p.bbox;
-      this.ctx.strokeStyle = '#45d9ed';
-      this.ctx.lineWidth = 3;
-      this.ctx.strokeRect(x, y, w, h);
-
-      // Label background
-      const text = `${p.class} ${Math.round(p.score * 100)}%`;
-      this.ctx.fillStyle = 'rgba(7, 17, 31, 0.85)';
-      this.ctx.fillRect(x, Math.max(0, y - 24), this.ctx.measureText(text).width + 12, 22);
-
-      // Label text
-      this.ctx.fillStyle = '#eef7ff';
-      this.ctx.font = '12px -apple-system, sans-serif';
-      this.ctx.fillText(text, x + 6, Math.max(16, y - 8));
-    });
-  }
-
-  // Frame loop hook ready for Phase 2 neural network inference
-  startFrameLoop() {
-    const loop = () => {
-      if (!this.isActive) return;
-      if (this.onFrameCallback && this.videoEl && this.videoEl.readyState >= 2) {
-        this.onFrameCallback(this.videoEl);
-      }
-      this.animFrameId = requestAnimationFrame(loop);
-    };
-    this.animFrameId = requestAnimationFrame(loop);
-  }
-
-  registerPhase2Model(callback) {
-    this.onFrameCallback = callback;
-    console.info("DRISVYA Phase 2 Vision Model pipeline registered.");
   }
 }
 

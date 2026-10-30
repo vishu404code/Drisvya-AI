@@ -12,6 +12,10 @@
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/components.css">
   <link rel="stylesheet" href="css/accessibility.css">
+
+  <!-- TensorFlow.js and COCO-SSD Object Detection Model -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
 </head>
 <body>
   <!-- Screen Reader Skip Link -->
@@ -124,7 +128,10 @@
                 <span class="hud-badge-dot"></span>
                 <span class="hud-badge-text">STANDBY</span>
               </span>
-              <span class="hud-badge">HUD 1.0</span>
+              <span id="modelStatusBadge" class="hud-badge">
+                <span class="hud-badge-dot" style="background:var(--status-standby);"></span>
+                <span>AI STANDBY</span>
+              </span>
             </div>
 
             <!-- Optical Reticle & Guides -->
@@ -148,6 +155,18 @@
               <span class="camera-status-label">Status:</span>
             </div>
             <span id="cameraStatusValue" class="camera-status-value">Camera Inactive • Ready to Connect</span>
+          </div>
+
+          <!-- Camera Lens & Ultra-Wide Controls (Active when multiple lenses or zoom detected) -->
+          <div id="cameraSelectContainer" class="camera-select-row" style="display: none;">
+            <div class="camera-select-wrap">
+              <label for="cameraSelectDropdown" class="camera-select-label">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9a3.75 3.75 0 100 7.5 3.75 3.75 0 000-7.5z"/><path fill-rule="evenodd" d="M9.344 3.071a49.52 49.52 0 015.312 0c.967.052 1.83.585 2.332 1.39l.821 1.317c.24.383.645.643 1.11.71a48.89 48.89 0 015.081.768c1.378.208 2.38 1.41 2.38 2.802v8.692c0 1.392-1.002 2.594-2.38 2.802a48.88 48.88 0 01-16.02 0c-1.378-.208-2.38-1.41-2.38-2.802V10.06c0-1.392 1.002-2.594 2.38-2.802 1.688-.255 3.385-.514 5.081-.768.465-.067.87-.327 1.11-.71l.822-1.317a3.003 3.003 0 012.332-1.39z"/></svg>
+                Lens:
+              </label>
+              <select id="cameraSelectDropdown" class="camera-select-dropdown" aria-label="Select camera lens"></select>
+            </div>
+            <button id="btnToggleUltraWide" class="btn-lens-toggle" style="display: none;" aria-label="Toggle ultra-wide angle">0.5x Wide</button>
           </div>
 
           <!-- Large Prominent START ASSISTANCE Button -->
@@ -196,7 +215,7 @@
             </svg>
             <span>Detection Summary</span>
           </h3>
-          <span class="section-badge-phase">Phase 2 Ready</span>
+          <span class="section-badge-phase" id="aiModelVersionBadge">COCO-SSD Live</span>
         </div>
 
         <!-- 4-metric grid -->
@@ -258,12 +277,12 @@
           </div>
         </div>
 
-        <!-- Honest Phase 1 status message -->
+        <!-- AI Detection status message -->
         <div class="phase-notice-box" role="status">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path fill-rule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm8.706-1.442c1.146-.573 2.437.463 2.126 1.706l-.709 2.836.042-.02a.75.75 0 01.67 1.34l-.04.022c-1.147.573-2.438-.463-2.127-1.706l.71-2.836-.042.02a.75.75 0 11-.671-1.34l.041-.022zM12 9a.75.75 0 100-1.5.75.75 0 000 1.5z" clip-rule="evenodd"/>
           </svg>
-          <span>AI Vision Pipeline ready for Phase 2 neural network model. No simulated detections are shown.</span>
+          <span id="aiDetectionStatusNote">On-device neural vision active. Real-time bounding boxes track objects, people, and obstacles.</span>
         </div>
       </section>
 
@@ -544,6 +563,7 @@
   <script src="js/sound.js"></script>
   <script src="js/voice.js"></script>
   <script src="js/accessibility.js"></script>
+  <script src="js/ai.js"></script>
   <script src="js/camera.js"></script>
   <script src="js/app.js"></script>
 </body>

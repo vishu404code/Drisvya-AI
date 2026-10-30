@@ -70,9 +70,27 @@ body.high-contrast-mode .voice-assistant-card,
 body.high-contrast-mode .history-card,
 body.high-contrast-mode .safety-disclaimer-card,
 body.high-contrast-mode .permission-instructions-card,
+body.high-contrast-mode .camera-select-row,
 body.high-contrast-mode .modal-sheet {
   border: 2px solid #ffffff !important;
   background: #000000 !important;
+}
+
+body.high-contrast-mode .camera-select-dropdown {
+  border: 1.5px solid #ffffff !important;
+  background: #000000 !important;
+  color: #ffffff !important;
+}
+
+body.high-contrast-mode .btn-lens-toggle {
+  border: 2px solid #ffff00 !important;
+  background: #000000 !important;
+  color: #ffff00 !important;
+}
+
+body.high-contrast-mode .btn-lens-toggle.active {
+  background: #ffff00 !important;
+  color: #000000 !important;
 }
 
 body.high-contrast-mode .btn-primary-action,

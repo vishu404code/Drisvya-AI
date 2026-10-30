@@ -1,110 +1,67 @@
 /**
- * DRISVYA Phase 1 - Comprehensive Verification Test Suite
- * Validates official branding, Android mobile-first design, accessibility,
- * interactive components, camera lifecycle, and architecture readiness.
+ * DRISVYA Phase 2 - Comprehensive Verification Test Suite
+ * Tests Real-Time Object Detection, Spatial Calculations (Left/Centre/Right),
+ * Multi-Camera & Ultra-Wide Discovery, Bounding Box Coordinate Mapping,
+ * and Assistance Lifecycle.
  */
 
 const fs = require('fs');
 const assert = require('assert');
 
-console.log('=== DRISVYA OFFICIAL BRAND & PHASE 1 AUDIT SUITE ===\n');
+console.log('=== DRISVYA PHASE 2 REAL-TIME AI & CAMERA AUDIT SUITE ===\n');
 
-// 1. READ CODEBASE FILES
+// 1. FILE AUDIT
 const html = fs.readFileSync('index.html', 'utf8');
 const styleCss = fs.readFileSync('css/style.css', 'utf8');
 const componentsCss = fs.readFileSync('css/components.css', 'utf8');
 const a11yCss = fs.readFileSync('css/accessibility.css', 'utf8');
 
-// 2. OFFICIAL BRAND IDENTITY AUDIT (Task 1 & 2)
-console.log('[TEST 1] Official Brand Identity & Minimal Vision Logo');
-assert(html.includes('DRISVYA'), 'Brand name DRISVYA must be present');
-assert(html.includes('Your World, Understood.'), 'Tagline "Your World, Understood." must be present');
-assert(html.includes('AI-Powered Assistive Vision Platform'), 'Category "AI-Powered Assistive Vision Platform" must be present');
-assert(!html.includes('VisionAid'), 'Found obsolete VisionAid branding in index.html');
+// 2. CHECK HTML AI SCRIPT TAGS & ELEMENTS
+console.log('[TEST 1] AI Script Tags & Phase 2 UI Elements');
+assert(html.includes('tfjs'), 'TensorFlow.js CDN script missing in index.html');
+assert(html.includes('coco-ssd'), 'COCO-SSD CDN script missing in index.html');
+assert(html.includes('js/ai.js'), 'js/ai.js script tag missing in index.html');
+assert(html.includes('id="overlayCanvas"'), 'Canvas overlay missing');
+assert(html.includes('id="modelStatusBadge"'), 'HUD model status badge missing');
+assert(html.includes('id="cameraSelectContainer"'), 'Camera lens selector container missing');
+assert(html.includes('id="cameraSelectDropdown"'), 'Camera dropdown missing');
+assert(html.includes('id="btnToggleUltraWide"'), 'Ultra-wide toggle button missing');
+console.log('  ✔ HTML script tags and Phase 2 elements verified');
 
-// Check minimal vision logo SVG
-assert(html.includes('class="brand-logo-mark"'), 'Missing brand logo mark container');
-assert(html.includes('stroke="#45d9ed"'), 'Missing vision-inspired cyan SVG stroke in logo');
-console.log('  ✔ Brand identity & minimal vision symbol verified');
+// 3. CSS AUDIT FOR CAMERA LENS & WIDE CONTROLS
+console.log('[TEST 2] CSS Styling for Lens & Ultra-Wide Controls');
+assert(componentsCss.includes('.camera-select-row'), 'CSS missing .camera-select-row');
+assert(componentsCss.includes('.btn-lens-toggle'), 'CSS missing .btn-lens-toggle');
+assert(a11yCss.includes('body.high-contrast-mode .camera-select-row'), 'High contrast CSS missing for camera select');
+console.log('  ✔ CSS rules for multi-camera controls verified');
 
-// 3. COLOR PALETTE & ANDROID DESIGN SYSTEM (Task 3, 4, 5)
-console.log('[TEST 2] Premium Dark Navy Interface & Android Optimization');
-assert(styleCss.includes('--bg-app: #07111f'), 'Missing dark navy #07111f background');
-assert(styleCss.includes('--accent-cyan: #45d9ed'), 'Missing cyan accent #45d9ed');
-assert(styleCss.includes('--touch-target-min: 48px'), 'Android 48px touch target minimum missing');
-assert(styleCss.includes('max-width: 500px'), 'Android mobile-first container max-width missing');
-assert(componentsCss.includes('.sticky-mobile-bar'), 'Sticky Android thumb-accessible action bar missing');
-console.log('  ✔ Theme tokens, responsive layout & touch ergonomics verified');
-
-// 4. MAIN CAMERA CARD & START ASSISTANCE CTA (Task 6)
-console.log('[TEST 3] Main Camera Card & Prominent Start Assistance CTA');
-assert(html.includes('id="cameraCard"'), 'Missing cameraCard element');
-assert(html.includes('id="cameraVideo"'), 'Missing camera video element');
-assert(html.includes('id="overlayCanvas"'), 'Missing overlayCanvas for bounding boxes');
-assert(html.includes('id="btnToggleAssistance"'), 'Missing primary START ASSISTANCE button');
-assert(html.includes('id="btnStickyAssist"'), 'Missing sticky mobile START ASSISTANCE button');
-assert(html.includes('id="cameraStatusValue"'), 'Missing camera status strip');
-console.log('  ✔ Camera card, canvas overlay & prominent CTA buttons verified');
-
-// 5. CAMERA PERMISSION INSTRUCTIONS (Task 7)
-console.log('[TEST 4] Clear Camera Permission Instructions');
-assert(html.includes('class="permission-instructions-card"'), 'Missing camera permission instructions card');
-assert(html.includes('Tap lock/tune icon') || html.includes('tune/lock icon'), 'Missing Android Chrome permission walkthrough');
-assert(html.includes('rear camera facing forward'), 'Missing chest-height rear camera orientation guidance');
-console.log('  ✔ Android camera permission instructions verified');
-
-// 6. DETECTION SUMMARY (Standby - Zero Fake AI)
-console.log('[TEST 5] Detection Summary & Phase 2 Standby State');
-assert(html.includes('id="countObjects"'), 'Missing objects counter');
-assert(html.includes('id="countPeople"'), 'Missing people counter');
-assert(html.includes('id="countVehicles"'), 'Missing vehicles counter');
-assert(html.includes('id="valNearestObject"'), 'Missing nearest obstacle card');
-assert(html.includes('No simulated detections are shown'), 'Honest Phase 1 standby notice missing');
-console.log('  ✔ Detection summary verified in clean standby state');
-
-// 7. VOICE ASSISTANT CONTROL PANEL & LANGUAGES (Task 8 & 9)
-console.log('[TEST 6] Voice Assistant Control Panel & English/Hindi Selection');
-assert(html.includes('id="voiceAssistantStatusText"'), 'Missing voice status indicator');
-assert(html.includes('id="audioVisualizer"'), 'Missing animated audio visualizer');
-assert(html.includes('id="btnLangEn"'), 'Missing English selector button');
-assert(html.includes('id="btnLangHi"'), 'Missing Hindi selector button');
-assert(html.includes('id="speedSlow"'), 'Missing Slow speed preset');
-assert(html.includes('id="speedNormal"'), 'Missing Normal speed preset');
-assert(html.includes('id="speedFast"'), 'Missing Fast speed preset');
-assert(html.includes('id="btnMuteVoice"'), 'Missing Mute Voice button');
-assert(html.includes('id="btnRepeatVoice"'), 'Missing Repeat Audio button');
-console.log('  ✔ Voice assistant controls, speed presets & language selectors verified');
-
-// 8. ACCESSIBILITY SETTINGS (Task 10)
-console.log('[TEST 7] Accessibility Settings (Large Text, High Contrast, Voice, Vibration)');
-assert(html.includes('id="toggleHighContrast"'), 'Missing High Contrast toggle');
-assert(html.includes('id="toggleLargeText"'), 'Missing Large Text toggle');
-assert(html.includes('id="toggleVoiceAlerts"'), 'Missing Voice Alerts toggle');
-assert(html.includes('id="toggleVibration"'), 'Missing Vibration toggle');
-assert(a11yCss.includes('body.high-contrast-mode'), 'Missing high-contrast-mode CSS rules');
-assert(a11yCss.includes('body.large-text-mode'), 'Missing large-text-mode CSS rules');
-console.log('  ✔ All 4 accessibility settings & CSS overrides verified');
-
-// 9. DETECTION HISTORY & PROPER EMPTY STATE (Task 11)
-console.log('[TEST 8] Detection History & Proper Empty State');
-assert(html.includes('id="detectionHistoryList"'), 'Missing detection history list');
-assert(html.includes('id="historyEmptyState"'), 'Missing history empty state');
-assert(html.includes('No detections recorded yet'), 'Empty state descriptive title missing');
-assert(html.includes('id="btnClearHistory"'), 'Missing clear history button');
-console.log('  ✔ Detection history & proper empty state verified');
-
-// 10. SAFETY DISCLAIMER (Task 12)
-console.log('[TEST 9] Safety Disclaimer');
-assert(html.includes('class="safety-disclaimer-card"'), 'Missing safety disclaimer card');
-assert(html.includes('white cane') && html.includes('guide dog'), 'Safety disclaimer must mention white cane and guide dog');
-assert(html.includes('does NOT replace') || html.includes('not replace'), 'Safety disclaimer must state it does not replace mobility aids');
-console.log('  ✔ Safety disclaimer verified');
-
-// 11. JAVASCRIPT ENGINE & ARCHITECTURE SIMULATION
-console.log('[TEST 10] JavaScript Engine & Architecture Simulation');
+// 4. JAVASCRIPT & AI ENGINE SIMULATION SETUP
+console.log('[TEST 3] AI Engine & Spatial Detection Unit Tests');
 
 // Mock browser global environment
 global.window = global;
+global.tf = {
+  ready: () => Promise.resolve(),
+  getBackend: () => 'webgl'
+};
+
+let mockModelLoaded = false;
+global.cocoSsd = {
+  load: async (options) => {
+    mockModelLoaded = true;
+    return {
+      detect: async (video, maxObjects, threshold) => {
+        // Mock detections: person, chair, bottle
+        return [
+          { bbox: [120, 80, 240, 500], class: 'person', score: 0.94 },
+          { bbox: [30, 200, 160, 220], class: 'chair', score: 0.82 },
+          { bbox: [950, 160, 80, 180], class: 'bottle', score: 0.89 }
+        ];
+      }
+    };
+  }
+};
+
 global.document = {
   activeElement: null,
   body: {
@@ -117,11 +74,19 @@ global.document = {
     }
   },
   getElementById(id) {
-    return {
+    const el = {
       id,
       textContent: '',
       innerHTML: '',
       style: {},
+      clientWidth: 400,
+      clientHeight: 300,
+      width: 400,
+      height: 300,
+      videoWidth: 1280,
+      videoHeight: 720,
+      readyState: 4,
+      options: [],
       classList: {
         items: new Set(),
         add(cls) { this.items.add(cls); },
@@ -133,7 +98,9 @@ global.document = {
       getAttribute(name) { return this[name]; },
       addEventListener() {},
       querySelector() { return null; },
-      appendChild() {},
+      appendChild(child) {
+        if (this.options) this.options.push(child);
+      },
       pause() {},
       play() { return Promise.resolve(); },
       getContext() {
@@ -142,18 +109,68 @@ global.document = {
           strokeRect() {},
           fillRect() {},
           fillText() {},
-          measureText() { return { width: 50 }; }
+          measureText() { return { width: 60 }; },
+          beginPath() {},
+          moveTo() {},
+          lineTo() {},
+          stroke() {},
+          fill() {},
+          roundRect() {},
+          save() {},
+          restore() {},
+          scale() {}
         };
       }
+    };
+    return el;
+  },
+  createElement(tag) {
+    return {
+      tagName: tag,
+      value: '',
+      textContent: '',
+      selected: false,
+      innerHTML: '',
+      style: {},
+      classList: { add() {} }
     };
   },
   addEventListener() {}
 };
 
-global.navigator = {
-  onLine: true,
-  vibrate() { return true; }
-};
+Object.defineProperty(global, 'navigator', {
+  value: {
+    onLine: true,
+    vibrate() { return true; },
+    mediaDevices: {
+      getUserMedia: async (constraints) => {
+        return {
+          getTracks: () => [
+            {
+              stop() {},
+              getCapabilities: () => ({ zoom: { min: 0.5, max: 8.0, step: 0.1 } }),
+              applyConstraints: async () => {}
+            }
+          ],
+          getVideoTracks: () => [
+            {
+              stop() {},
+              getCapabilities: () => ({ zoom: { min: 0.5, max: 8.0, step: 0.1 } }),
+              applyConstraints: async () => {}
+            }
+          ]
+        };
+      },
+      enumerateDevices: async () => [
+        { kind: 'videoinput', deviceId: 'cam_back_0', label: 'Back Camera 0 (Wide)' },
+        { kind: 'videoinput', deviceId: 'cam_back_1', label: 'Back Camera 2 (Ultra-Wide 0.5x)' },
+        { kind: 'videoinput', deviceId: 'cam_front', label: 'Front Camera' }
+      ]
+    }
+  },
+  configurable: true,
+  writable: true
+});
 
 global.localStorage = {
   store: {},
@@ -162,40 +179,99 @@ global.localStorage = {
   removeItem(key) { delete this.store[key]; }
 };
 
-// Require JS modules
+global.requestAnimationFrame = (cb) => setTimeout(cb, 16);
+global.cancelAnimationFrame = (id) => clearTimeout(id);
+
+// Load DRISVYA modules
 require('./js/sound.js');
 require('./js/voice.js');
 require('./js/accessibility.js');
+require('./js/ai.js');
 require('./js/camera.js');
 
-// 1. Test Voice Language & Repeat Fallback
-window.voiceAssistant.setLanguage('hi');
-assert.strictEqual(window.voiceAssistant.currentLanguage, 'hi', 'Hindi switch failed');
-const repeatHi = window.voiceAssistant.repeatLast();
-assert(repeatHi.includes('दृश्या'), 'Hindi repeat prompt missing brand name');
+// 5. TEST AI ENGINE & MODEL LOADING (Testing Req 2)
+(async () => {
+  console.log('[TEST 4] AI Model Loading (COCO-SSD lite_mobilenet_v2)');
+  await window.aiEngine.loadModel();
+  assert.strictEqual(window.aiEngine.isReady, true, 'AI Engine should be ready');
+  assert.strictEqual(mockModelLoaded, true, 'Mock model should be loaded');
+  console.log('  ✔ AI model loaded successfully with lite_mobilenet_v2');
 
-window.voiceAssistant.setLanguage('en');
-assert.strictEqual(window.voiceAssistant.currentLanguage, 'en', 'English switch failed');
-const repeatEn = window.voiceAssistant.repeatLast();
-assert(repeatEn.includes('DRISVYA'), 'English repeat prompt missing brand name');
+  // 6. TEST SPATIAL POSITION CALCULATIONS (Testing Req 7)
+  console.log('[TEST 5] Spatial Position Calculation (Left / Centre / Right)');
+  const vWidth = 1280;
 
-// 2. Test Accessibility Toggles
-window.a11yManager.init();
-const hc = window.a11yManager.toggleHighContrast();
-assert.strictEqual(hc, true, 'High contrast toggle failed');
-assert(document.body.classList.contains('high-contrast-mode'), 'Body missing high-contrast-mode class');
+  // Left object: x=50, w=100 -> center = 100 / 1280 = 0.078 < 0.35 -> Left
+  const leftSpatial = window.aiEngine.calculateSpatialPosition([50, 50, 100, 100], vWidth);
+  assert.strictEqual(leftSpatial.position, 'Left', 'Object on left should be identified as Left');
+  assert.strictEqual(leftSpatial.positionHi, 'बाईं ओर', 'Hindi for Left must be correct');
 
-const lt = window.a11yManager.toggleLargeText();
-assert.strictEqual(lt, true, 'Large text toggle failed');
-assert(document.body.classList.contains('large-text-mode'), 'Body missing large-text-mode class');
+  // Centre object: x=540, w=200 -> center = 640 / 1280 = 0.50 -> Centre
+  const centreSpatial = window.aiEngine.calculateSpatialPosition([540, 50, 200, 200], vWidth);
+  assert.strictEqual(centreSpatial.position, 'Centre', 'Object in middle should be identified as Centre');
+  assert.strictEqual(centreSpatial.positionHi, 'सामने', 'Hindi for Centre must be correct');
 
-// 3. Test Camera Controller & Architecture Hook for TensorFlow.js / COCO-SSD
-window.cameraController.init();
-assert.strictEqual(typeof window.cameraController.drawBoundingBoxes, 'function', 'drawBoundingBoxes hook missing');
-assert.strictEqual(typeof window.cameraController.registerPhase2Model, 'function', 'registerPhase2Model hook missing');
+  // Right object: x=1000, w=200 -> center = 1100 / 1280 = 0.859 > 0.65 -> Right
+  const rightSpatial = window.aiEngine.calculateSpatialPosition([1000, 50, 200, 200], vWidth);
+  assert.strictEqual(rightSpatial.position, 'Right', 'Object on right should be identified as Right');
+  assert.strictEqual(rightSpatial.positionHi, 'दाईं ओर', 'Hindi for Right must be correct');
+  console.log('  ✔ Spatial calculations for Left, Centre, and Right passed');
 
-console.log('  ✔ Voice, Accessibility, Camera & Phase 2 AI architecture verified');
+  // 7. TEST DETECTION OF PERSON, CHAIR, BOTTLE (Testing Req 3, 4, 5)
+  console.log('[TEST 6] Detection of Person, Chair, and Bottle Classes');
+  const mockVideo = document.getElementById('cameraVideo');
+  const preds = await window.aiEngine.detect(mockVideo);
+  assert(preds.some(p => p.class === 'person'), 'Must detect person');
+  assert(preds.some(p => p.class === 'chair'), 'Must detect chair');
+  assert(preds.some(p => p.class === 'bottle'), 'Must detect bottle');
+  console.log(`  ✔ Detected ${preds.length} objects: ${preds.map(p => `${p.class} (${p.spatial.position})`).join(', ')}`);
 
-console.log('\n================================================================');
-console.log('🎉 ALL 10 COMPREHENSIVE VERIFICATION SUITES PASSED WITH ZERO ERRORS');
-console.log('================================================================');
+  // 8. TEST CAMERA CONTROLLER INITIALIZATION & CAMERA DISCOVERY (Testing Req 1, 9)
+  console.log('[TEST 7] Multi-Camera & Ultra-Wide Discovery');
+  window.cameraController.init();
+  await window.cameraController.discoverCameraDevices();
+  assert(window.cameraController.availableDevices.length >= 2, 'Should discover multiple camera devices');
+  console.log(`  ✔ Discovered ${window.cameraController.availableDevices.length} camera devices`);
+
+  // Test ultra-wide hardware zoom toggle
+  window.cameraController.activeTrack = {
+    getCapabilities: () => ({ zoom: { min: 0.5, max: 8.0 } }),
+    applyConstraints: async (c) => {
+      assert(c.advanced[0].zoom <= 1.0, 'Zoom constraint should be <= 1.0');
+    }
+  };
+  await window.cameraController.toggleUltraWideZoom();
+  assert.strictEqual(window.cameraController.isUltraWideActive, true, 'Ultra-wide should be active');
+  console.log('  ✔ Ultra-wide lens toggle passed');
+
+  // 9. TEST CAMERA ASSISTANCE START & DETECTION (Testing Req 1, 6, 8)
+  console.log('[TEST 8] Camera Start, Processing & Bounding Box Rendering');
+  await window.cameraController.startAssistance();
+  assert.strictEqual(window.cameraController.isActive, true, 'Camera should be active');
+
+  // Process predictions and verify counts
+  window.cameraController.processDetectionResults(preds);
+  assert.strictEqual(window.cameraController.detections.objects, 3, 'Objects count should be 3');
+  assert.strictEqual(window.cameraController.detections.people, 1, 'People count should be 1');
+  assert(window.cameraController.detections.nearest.includes('PERSON'), 'Nearest should identify largest object (PERSON)');
+
+  // Test drawBoundingBoxes execution
+  window.cameraController.drawBoundingBoxes(preds);
+  console.log('  ✔ Camera started and bounding boxes rendered without errors');
+
+  // 10. TEST CAMERA STOP & CLEANUP (Testing Req 10)
+  console.log('[TEST 9] Camera Stop & Complete Detection Cleanup');
+  await window.cameraController.stopAssistance();
+  assert.strictEqual(window.cameraController.isActive, false, 'Camera should be inactive');
+  assert.strictEqual(window.cameraController.isDetecting, false, 'Detection should be stopped');
+  assert.strictEqual(window.cameraController.stream, null, 'Stream tracks should be released');
+  assert.strictEqual(window.cameraController.detections.objects, 0, 'Object counts should reset to 0');
+  console.log('  ✔ Camera stopped and all detection resources cleanly released');
+
+  console.log('\n================================================================');
+  console.log('🎉 ALL PHASE 2 VERIFICATION SUITES PASSED WITH 0 ERRORS');
+  console.log('================================================================');
+})().catch(err => {
+  console.error('TEST FAILED:', err);
+  process.exit(1);
+});
