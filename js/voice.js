@@ -71,6 +71,7 @@ class VoiceAssistant {
     // Speech synthesis state
     this.isSpeaking = false;
     this.isUrgentSpeaking = false;
+    this.isPrimarySpeaking = false;
     this.activeUtterance = null; // Retain reference to prevent Android Chromium V8 garbage collection mid-speech
     this.isAudioUnlocked = false; // Audio unlock flag
 
@@ -367,6 +368,16 @@ class VoiceAssistant {
   handleDetections(predictions = []) {
     if (!this.isAnnouncementsEnabled || this.isMuted) return;
 
+    // Ordinary object detections yield to locked primary person
+    if (typeof window !== 'undefined' && window.primaryPersonTracker && window.primaryPersonTracker.lockStatus === 'locked') {
+      const prox = window.primaryPersonTracker.lockedPerson && window.primaryPersonTracker.lockedPerson.proximity
+        ? window.primaryPersonTracker.lockedPerson.proximity.level
+        : null;
+      if (prox === 'Close' || prox === 'Approaching') {
+        return; // Suppress ordinary announcements to give primary person top audio priority
+      }
+    }
+
     const now = Date.now();
     const matchedTrackedIds = new Set();
 
@@ -536,10 +547,17 @@ class VoiceAssistant {
       return;
     }
 
-    // Urgent warnings interrupt lower-priority announcements
-    if (priority === 'urgent' && this.synth.speaking) {
-      this.synth.cancel();
-      this.isSpeaking = false;
+    // Urgent & Primary warnings interrupt lower-priority announcements
+    if ((priority === 'urgent' || priority === 'primary') && this.synth.speaking) {
+      if (!this.isUrgentSpeaking && !(priority === 'primary' && this.isPrimarySpeaking)) {
+        this.synth.cancel();
+        this.isSpeaking = false;
+        this.isPrimarySpeaking = false;
+        this.isUrgentSpeaking = false;
+      } else {
+        // Already speaking an urgent or primary alert — avoid collision/overlap
+        return;
+      }
     } else if (this.isSpeaking || this.synth.speaking) {
       // Ordinary announcements must NEVER interrupt an announcement already playing
       return;
@@ -567,6 +585,8 @@ class VoiceAssistant {
 
     if (priority === 'urgent') {
       this.isUrgentSpeaking = true;
+    } else if (priority === 'primary') {
+      this.isPrimarySpeaking = true;
     }
 
     utterance.onstart = () => {
@@ -578,6 +598,7 @@ class VoiceAssistant {
     const handleSpeechEnd = () => {
       this.isSpeaking = false;
       this.isUrgentSpeaking = false;
+      this.isPrimarySpeaking = false;
       this.activeUtterance = null;
       this.stopVisualizer();
 
@@ -612,6 +633,51 @@ class VoiceAssistant {
     } catch (err) {
       console.error('[DRISVYA Voice] Speech call failed:', err);
       handleSpeechEnd();
+    }
+  }
+
+  /**
+   * Primary Person Priority Voice Announcements
+   * Routes all locked person events with top audio priority through central Speech Manager
+   */
+  announcePrimaryPerson(stateKey, customText) {
+    if (!this.isAnnouncementsEnabled || this.isMuted) return;
+
+    const messages = {
+      en: {
+        locked: "Primary person detected.",
+        far: "Primary person is far away.",
+        approaching: "Primary person is getting closer.",
+        close: "Primary person is close.",
+        lost: "Primary person temporarily lost.",
+        unlocked: "Primary person unlocked."
+      },
+      hi: {
+        locked: "मुख्य व्यक्ति दिखाई दे रहा है।",
+        far: "मुख्य व्यक्ति दूर है।",
+        approaching: "मुख्य व्यक्ति पास आ रहा है।",
+        close: "मुख्य व्यक्ति पास है।",
+        lost: "मुख्य व्यक्ति अस्थायी रूप से खो गया है।",
+        unlocked: "मुख्य व्यक्ति अनलॉक हो गया है।"
+      }
+    };
+
+    const lang = this.currentLanguage === 'hi' ? 'hi' : 'en';
+    const text = customText || (messages[lang] && messages[lang][stateKey]) || (messages.en && messages.en[stateKey]);
+    if (!text) return;
+
+    const now = Date.now();
+    this.lastAnnouncementTime = now;
+
+    // Discard pending ordinary announcement
+    this.pendingAnnouncement = null;
+
+    // Close and lost events get highest urgent priority; other transitions get primary priority
+    const prio = (stateKey === 'close' || stateKey === 'lost') ? 'urgent' : 'primary';
+    this.speak(text, { priority: prio });
+
+    if (window.app) {
+      window.app.logActivity(text, "voice");
     }
   }
 

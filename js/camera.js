@@ -68,6 +68,10 @@ class CameraController {
     this.bindCameraSelectionControls();
     this.discoverCameraDevices();
     this.updateDetectionUI();
+
+    if (window.primaryPersonTracker) {
+      window.primaryPersonTracker.init();
+    }
   }
 
   /**
@@ -374,6 +378,10 @@ class CameraController {
       }
     }
 
+    if (window.primaryPersonTracker) {
+      window.primaryPersonTracker.reset();
+    }
+
     if (!this.isActive && !this.stream) return;
 
     if (window.soundEngine) {
@@ -422,6 +430,10 @@ class CameraController {
       if (window.voiceAssistant.synth) {
         window.voiceAssistant.synth.cancel();
       }
+    }
+
+    if (window.primaryPersonTracker) {
+      window.primaryPersonTracker.reset();
     }
 
     // Reset detection counts
@@ -511,6 +523,13 @@ class CameraController {
 
     this.updateDetectionUI();
     this.renderLiveDetectionList(predictions);
+
+    // Update Primary Person Tracker & Proximity Estimator
+    if (window.primaryPersonTracker) {
+      const vW = (this.videoEl && this.videoEl.videoWidth) || 1280;
+      const vH = (this.videoEl && this.videoEl.videoHeight) || 720;
+      window.primaryPersonTracker.update(predictions, vW, vH);
+    }
     
     // Delegate intelligent voice narration & urgent obstacle alerts to VoiceAssistant
     if (window.voiceAssistant && window.voiceAssistant.handleDetections) {
@@ -606,6 +625,9 @@ class CameraController {
     const offsetX = (containerW - renderW) / 2;
     const offsetY = (containerH - renderH) / 2;
 
+    const tracker = window.primaryPersonTracker;
+    const isPrimaryLocked = tracker && tracker.lockStatus === 'locked';
+
     predictions.forEach(pred => {
       const [bx, by, bw, bh] = pred.bbox;
 
@@ -615,22 +637,29 @@ class CameraController {
       const drawW = bw * scale;
       const drawH = bh * scale;
 
-      // Color coding: Cyan for objects, Green for people, Amber for vehicles
+      const isPrimary = isPrimaryLocked && (pred.isPrimaryPerson || (tracker.lockedPersonId && pred.id === tracker.lockedPersonId));
+
+      // Color coding: Gold for locked primary person, Cyan for objects, Green for other people, Amber for vehicles
       let strokeColor = '#45d9ed';
-      if (pred.class === 'person') strokeColor = '#34d399';
+      if (isPrimary) strokeColor = '#f59e0b';
+      else if (pred.class === 'person') strokeColor = '#34d399';
       else if (['car', 'bus', 'truck', 'motorcycle', 'bicycle'].includes(pred.class)) strokeColor = '#fbbf24';
 
       // Draw bounding rectangle
       this.ctx.strokeStyle = strokeColor;
-      this.ctx.lineWidth = 2.5;
+      this.ctx.lineWidth = isPrimary ? 3.5 : 2.5;
       this.ctx.shadowColor = strokeColor;
-      this.ctx.shadowBlur = 8;
+      this.ctx.shadowBlur = isPrimary ? 16 : 8;
       this.ctx.strokeRect(drawX, drawY, drawW, drawH);
+      if (isPrimary) {
+        this.ctx.lineWidth = 1;
+        this.ctx.strokeRect(drawX + 3, drawY + 3, Math.max(0, drawW - 6), Math.max(0, drawH - 6));
+      }
       this.ctx.shadowBlur = 0;
 
       // Corner target brackets
-      const cornerLen = Math.min(14, drawW / 3, drawH / 3);
-      this.ctx.lineWidth = 4;
+      const cornerLen = Math.min(16, drawW / 3, drawH / 3);
+      this.ctx.lineWidth = isPrimary ? 5 : 4;
       this.ctx.beginPath();
       // TL
       this.ctx.moveTo(drawX, drawY + cornerLen);
@@ -653,27 +682,55 @@ class CameraController {
       // Label Pill
       const score = Math.round(pred.score * 100);
       const pos = pred.spatial ? pred.spatial.position.toUpperCase() : 'CENTRE';
-      const labelText = `${pred.class.toUpperCase()} ${score}% · ${pos}`;
+      let labelText = `${pred.class.toUpperCase()} ${score}% · ${pos}`;
+      if (isPrimary) {
+        const prox = (tracker.lockedPerson && tracker.lockedPerson.proximity && tracker.lockedPerson.proximity.level) || 'PROXIMITY';
+        labelText = `★ PRIMARY PERSON [LOCKED] · ${prox.toUpperCase()}`;
+      }
 
-      this.ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      this.ctx.font = isPrimary 
+        ? '800 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+        : '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
       const textMetrics = this.ctx.measureText(labelText);
-      const pillW = textMetrics.width + 14;
-      const pillH = 20;
+      const pillW = textMetrics.width + 16;
+      const pillH = 22;
       const pillY = Math.max(4, drawY - pillH - 2);
 
       // Pill Background
-      this.ctx.fillStyle = 'rgba(7, 17, 31, 0.9)';
+      this.ctx.fillStyle = isPrimary ? 'rgba(26, 18, 4, 0.95)' : 'rgba(7, 17, 31, 0.9)';
       this.ctx.beginPath();
       this.ctx.roundRect(drawX, pillY, pillW, pillH, 4);
       this.ctx.fill();
       this.ctx.strokeStyle = strokeColor;
-      this.ctx.lineWidth = 1;
+      this.ctx.lineWidth = isPrimary ? 1.5 : 1;
       this.ctx.stroke();
 
       // Pill Text
-      this.ctx.fillStyle = '#ffffff';
-      this.ctx.fillText(labelText, drawX + 7, pillY + 14);
+      this.ctx.fillStyle = isPrimary ? '#fef08a' : '#ffffff';
+      this.ctx.fillText(labelText, drawX + 8, pillY + 15);
     });
+
+    // If locked person is temporarily lost within recovery window, draw alert banner at top
+    if (tracker && tracker.lockStatus === 'temporarily_lost') {
+      const bannerText = "⚠ PRIMARY PERSON TEMPORARILY LOST — REACQUIRING...";
+      this.ctx.font = '800 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      const bMetrics = this.ctx.measureText(bannerText);
+      const bW = bMetrics.width + 24;
+      const bH = 24;
+      const bX = (containerW - bW) / 2;
+      const bY = 10;
+
+      this.ctx.fillStyle = 'rgba(239, 68, 68, 0.92)';
+      this.ctx.beginPath();
+      this.ctx.roundRect(bX, bY, bW, bH, 6);
+      this.ctx.fill();
+      this.ctx.strokeStyle = '#ffffff';
+      this.ctx.lineWidth = 1.5;
+      this.ctx.stroke();
+
+      this.ctx.fillStyle = '#ffffff';
+      this.ctx.fillText(bannerText, bX + 12, bY + 16);
+    }
 
     this.ctx.restore();
   }

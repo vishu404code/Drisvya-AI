@@ -25,8 +25,13 @@ console.log('[TEST 1] Markup & CSS Controls Audit');
 assert(html.includes('id="toggleObjectAnnouncements"'), 'Object announcements toggle switch missing');
 assert(html.includes('id="rangeVoiceVolume"'), 'Announcement volume slider missing');
 assert(html.includes('id="btnTestVoice"'), 'Test Voice button missing');
+assert(html.includes('id="primaryLockStatusBadge"'), 'Primary person lock status badge missing');
+assert(html.includes('id="valPrimaryProximity"'), 'Primary proximity value missing');
+assert(html.includes('id="btnUnlockPrimaryPerson"'), 'Unlock Primary Person button missing');
 assert(componentsCss.includes('.voice-toggle-row'), 'CSS missing .voice-toggle-row');
 assert(componentsCss.includes('.slider-switch-track'), 'CSS missing .slider-switch-track');
+assert(componentsCss.includes('.primary-person-card'), 'CSS missing .primary-person-card');
+assert(componentsCss.includes('.proximity-badge'), 'CSS missing .proximity-badge');
 console.log('  ✔ All UI elements and CSS controls verified');
 
 // 2. TIME SIMULATION & BROWSER MOCK
@@ -154,10 +159,19 @@ global.document = {
   getElementById(id) {
     return getOrCreateMockElement(id);
   },
+  querySelector(sel) {
+    return getOrCreateMockElement(sel.replace(/^[.#]/, ''));
+  },
   createElement(tag) {
     return {
       tagName: tag, value: '', textContent: '', selected: false, innerHTML: '', style: {},
-      classList: { add() {} }
+      classList: {
+        items: new Set(),
+        add(cls) { this.items.add(cls); },
+        remove(cls) { this.items.delete(cls); },
+        contains(cls) { return this.items.has(cls); }
+      },
+      addEventListener() {}
     };
   },
   addEventListener() {}
@@ -198,6 +212,7 @@ require('./js/sound.js');
 require('./js/voice.js');
 require('./js/accessibility.js');
 require('./js/ai.js');
+require('./js/tracker.js');
 require('./js/camera.js');
 
 (async () => {
@@ -394,8 +409,181 @@ require('./js/camera.js');
   assert(window.cameraController.availableDevices.length >= 2, 'Devices enumerated');
   console.log('  ✔ Camera hardware enumerated without cropping raw video inputs');
 
+  // ====================================================================
+  // SMART DISTANCE AWARENESS & PRIMARY PERSON TRACKING TEST SCENARIOS
+  // ====================================================================
+  console.log('\n--- PRIMARY PERSON & DISTANCE AWARENESS SCENARIOS ---\n');
+
+  // Scenario 3: Multiple people visible simultaneously
+  console.log('[SCENARIO 1] Multiple People Visible Simultaneously');
+  window.primaryPersonTracker.reset();
+  currentTime = 6000000;
+  spokenUtterances = [];
+
+  const personA = { bbox: [100, 100, 160, 320], class: 'person', score: 0.90, spatial: { position: 'Left' } };
+  const personB = { bbox: [600, 100, 180, 340], class: 'person', score: 0.88, spatial: { position: 'Centre' } };
+  const frameMulti = [personA, personB];
+
+  window.primaryPersonTracker.update(frameMulti, 1280, 720);
+  assert.strictEqual(window.primaryPersonTracker.detectedPeople.length, 2, 'Must detect and track both people simultaneously');
+  assert.strictEqual(window.primaryPersonTracker.lockStatus, 'not_locked', 'Initial state must be not_locked');
+  console.log('  ✔ Multiple people detected and assigned distinct track IDs without locking prematurely');
+
+  // Scenario 4: Selecting and locking one particular person
+  console.log('[SCENARIO 2] Selecting and Locking One Particular Person');
+  spokenUtterances = [];
+  const targetToLock = window.primaryPersonTracker.detectedPeople[0]; // Lock Person A
+  const targetId = targetToLock.id;
+  window.primaryPersonTracker.lockPerson(targetToLock);
+
+  assert.strictEqual(window.primaryPersonTracker.lockStatus, 'locked');
+  assert.strictEqual(window.primaryPersonTracker.lockedPersonId, targetId);
+  assert.strictEqual(spokenUtterances.length, 1);
+  assert.strictEqual(spokenUtterances[0].text, 'Primary person detected.', 'Must announce locked target');
+  console.log('  ✔ Target person locked with confirmation announcement');
+
+  // Scenario 5: Other people entering frame without breaking lock (Anti-drift)
+  console.log('[SCENARIO 3] Anti-Drift: Other People Moving / Entering Frame');
+  currentTime += 500;
+  const personC = { bbox: [800, 50, 300, 600], class: 'person', score: 0.95, spatial: { position: 'Right' } }; // Larger person entering
+  const personAMoved = { bbox: [110, 105, 160, 320], class: 'person', score: 0.91, spatial: { position: 'Left' } };
+  window.primaryPersonTracker.update([personAMoved, personB, personC], 1280, 720);
+
+  assert.strictEqual(window.primaryPersonTracker.lockStatus, 'locked');
+  assert.strictEqual(window.primaryPersonTracker.lockedPersonId, targetId, 'Lock must remain on original Person A');
+  assert.strictEqual(window.primaryPersonTracker.lockedPerson.id, targetId);
+  console.log('  ✔ Anti-drift lock retained on primary person despite new/closer people in frame');
+
+  // Scenario 1: Person moving closer (Approaching)
+  console.log('[SCENARIO 4] Relative Proximity: Person Moving Closer (Approaching)');
+  spokenUtterances = [];
+  window.primaryPersonTracker.history = []; // Reset history
+  window.primaryPersonTracker.lastAnnouncedProximity = 'Far';
+  window.primaryPersonTracker.lastAnnouncedTime = currentTime;
+
+  // Simulate consecutive frames of expanding size from Far
+  // Frame 1: w=80, h=160
+  currentTime += 100;
+  window.primaryPersonTracker.update([{ bbox: [110, 100, 80, 160], class: 'person', score: 0.92, spatial: { position: 'Centre' } }], 1280, 720);
+
+  // Frame 2: expanding w=95, h=190
+  currentTime += 100;
+  window.primaryPersonTracker.update([{ bbox: [110, 80, 95, 190], class: 'person', score: 0.92, spatial: { position: 'Centre' } }], 1280, 720);
+
+  // Frame 3: expanding w=115, h=230
+  currentTime += 100;
+  window.primaryPersonTracker.update([{ bbox: [110, 60, 115, 230], class: 'person', score: 0.92, spatial: { position: 'Centre' } }], 1280, 720);
+
+  // Frame 4: expanding w=140, h=280
+  currentTime += 100;
+  window.primaryPersonTracker.update([{ bbox: [110, 40, 140, 280], class: 'person', score: 0.92, spatial: { position: 'Centre' } }], 1280, 720);
+
+  assert.strictEqual(window.primaryPersonTracker.lockedPerson.proximity.level, 'Approaching', 'Must identify Approaching trend');
+  assert.strictEqual(spokenUtterances.length, 1);
+  assert.strictEqual(spokenUtterances[0].text, 'Primary person is getting closer.');
+  console.log('  ✔ Multi-frame temporal expansion correctly categorized as "Approaching"');
+
+  // Scenario 7: No repeated announcements for unchanged proximity state
+  console.log('[SCENARIO 5] No Repeated Announcements for Unchanged Proximity');
+  const initialCount = spokenUtterances.length;
+  // Next 5 frames in same approaching range
+  for (let i = 0; i < 5; i++) {
+    currentTime += 100;
+    window.primaryPersonTracker.update([{ bbox: [110, 40, 142, 282], class: 'person', score: 0.92, spatial: { position: 'Centre' } }], 1280, 720);
+  }
+  assert.strictEqual(spokenUtterances.length, initialCount, 'Must not spam speech while proximity state remains unchanged');
+  console.log('  ✔ Unchanged proximity state produced zero duplicate announcements');
+
+  // Person reaches Close
+  console.log('[SCENARIO 6] Transition to Close State & Highest Priority Alert');
+  spokenUtterances = [];
+  currentTime += 100;
+  // Frame large enough for close (h=440, heightRatio = 440/720 = 0.61 > 0.52)
+  window.primaryPersonTracker.update([{ bbox: [100, 20, 260, 440], class: 'person', score: 0.94, spatial: { position: 'Centre' } }], 1280, 720);
+
+  assert.strictEqual(window.primaryPersonTracker.lockedPerson.proximity.level, 'Close');
+  assert.strictEqual(spokenUtterances.length, 1);
+  assert.strictEqual(spokenUtterances[0].text, 'Primary person is close.');
+  console.log('  ✔ Close proximity identified and announced with urgent priority');
+
+  // Scenario 2: Person moving farther away (Far)
+  console.log('[SCENARIO 7] Person Moving Farther Away (Far)');
+  spokenUtterances = [];
+  currentTime += 5000; // Past proximity cooldown
+  window.primaryPersonTracker.history = [];
+  // Small bounding box: 70x140 (heightRatio = 140/720 = 0.194 < 0.30, areaRatio = 9800/921600 = 0.010 < 0.08)
+  window.primaryPersonTracker.update([{ bbox: [100, 100, 70, 140], class: 'person', score: 0.88, spatial: { position: 'Centre' } }], 1280, 720);
+
+  assert.strictEqual(window.primaryPersonTracker.lockedPerson.proximity.level, 'Far');
+  assert.strictEqual(spokenUtterances.length, 1);
+  assert.strictEqual(spokenUtterances[0].text, 'Primary person is far away.');
+  console.log('  ✔ Reduced apparent size correctly categorized as "Far"');
+
+  // Scenario 6: Locked person temporarily disappearing (recovering within 3.5s)
+  console.log('[SCENARIO 8] Temporary Occlusion & 3.5s Recovery Window');
+  spokenUtterances = [];
+  currentTime += 1000;
+  // Frame with no people
+  window.primaryPersonTracker.update([], 1280, 720);
+  assert.strictEqual(window.primaryPersonTracker.lockStatus, 'temporarily_lost', 'Must enter temporarily_lost state');
+  assert.strictEqual(window.primaryPersonTracker.lockedPersonId, targetId, 'Must retain locked person ID');
+
+  // Still absent after 2 seconds (< 3.5s recovery window)
+  currentTime += 2000;
+  window.primaryPersonTracker.update([], 1280, 720);
+  assert.strictEqual(window.primaryPersonTracker.lockStatus, 'temporarily_lost', 'Must remain temporarily_lost within 3.5s');
+
+  // Reappears at 2.5s!
+  currentTime += 500;
+  window.primaryPersonTracker.update([{ bbox: [105, 100, 100, 180], class: 'person', score: 0.90, spatial: { position: 'Centre' } }], 1280, 720);
+  assert.strictEqual(window.primaryPersonTracker.lockStatus, 'locked', 'Lock successfully recovered without loss');
+  assert.strictEqual(window.primaryPersonTracker.lockedPersonId, targetId);
+  console.log('  ✔ Occluded target cleanly re-acquired within 3.5s recovery window');
+
+  // Scenario 8 & 9: English and Hindi announcements & No Speech Overlap
+  console.log('[SCENARIO 9] English & Hindi Phrasing with Single Speech Queue');
+  window.voiceAssistant.setLanguage('hi');
+  spokenUtterances = [];
+
+  window.voiceAssistant.announcePrimaryPerson('approaching');
+  assert.strictEqual(spokenUtterances.length, 1);
+  assert.strictEqual(spokenUtterances[0].text, 'मुख्य व्यक्ति पास आ रहा है।');
+
+  window.voiceAssistant.announcePrimaryPerson('close');
+  assert.strictEqual(spokenUtterances.length, 2);
+  assert.strictEqual(spokenUtterances[1].text, 'मुख्य व्यक्ति पास है।');
+
+  window.voiceAssistant.announcePrimaryPerson('lost');
+  assert.strictEqual(spokenUtterances.length, 3);
+  assert.strictEqual(spokenUtterances[2].text, 'मुख्य व्यक्ति अस्थायी रूप से खो गया है।');
+
+  window.voiceAssistant.announcePrimaryPerson('unlocked');
+  assert.strictEqual(spokenUtterances.length, 4);
+  assert.strictEqual(spokenUtterances[3].text, 'मुख्य व्यक्ति अनलॉक हो गया है।');
+
+  // Reset to English
+  window.voiceAssistant.setLanguage('en');
+  console.log('  ✔ All localized Hindi phrases verified through single speech queue');
+
+  // Scenario 10: Unlocking and selecting another person
+  console.log('[SCENARIO 10] Unlocking & Re-Targeting Another Person');
+  spokenUtterances = [];
+  window.primaryPersonTracker.unlockPerson();
+  assert.strictEqual(window.primaryPersonTracker.lockStatus, 'not_locked');
+  assert.strictEqual(window.primaryPersonTracker.lockedPersonId, null);
+  assert.strictEqual(spokenUtterances[0].text, 'Primary person unlocked.');
+
+  // Now lock Person B
+  spokenUtterances = [];
+  const personBNew = window.primaryPersonTracker.detectedPeople.find(p => p.id !== targetId) || { id: 'person_2', bbox: [500, 100, 200, 400], class: 'person', score: 0.9 };
+  window.primaryPersonTracker.lockPerson(personBNew);
+  assert.strictEqual(window.primaryPersonTracker.lockStatus, 'locked');
+  assert.strictEqual(window.primaryPersonTracker.lockedPersonId, personBNew.id);
+  assert.strictEqual(spokenUtterances[0].text, 'Primary person detected.');
+  console.log('  ✔ Primary person unlocked and re-targeted to different detected person');
+
   console.log('\n================================================================');
-  console.log('🎉 ALL 10 VERIFICATION TESTS PASSED WITH 0 ERRORS');
+  console.log('🎉 ALL 20 VERIFICATION & SCENARIO TESTS PASSED WITH 0 ERRORS');
   console.log('================================================================');
 })().catch(err => {
   console.error('TEST FAILED:', err);

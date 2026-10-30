@@ -1552,3 +1552,233 @@
   height: 22px;
   fill: currentColor;
 }
+
+/* ==========================================================================
+   11. Smart Distance Awareness & Primary Person Tracking Card
+   ========================================================================== */
+.primary-person-card {
+  position: relative;
+  transition: border-color var(--transition-normal);
+}
+
+.lock-status-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  display: inline-flex;
+  align-items: center;
+}
+
+.lock-status-badge.not-locked {
+  background: rgba(148, 163, 184, 0.1);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  color: var(--text-muted);
+}
+
+.lock-status-badge.locked {
+  background: rgba(245, 158, 11, 0.16);
+  border: 1px solid #f59e0b;
+  color: #fbbf24;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
+}
+
+.lock-status-badge.lost {
+  background: rgba(239, 68, 68, 0.16);
+  border: 1px solid #ef4444;
+  color: #f87171;
+  animation: pulseBadge 1.2s infinite ease-in-out;
+}
+
+@keyframes pulseBadge {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.75; transform: scale(0.97); }
+}
+
+.primary-person-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.primary-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+@media (min-width: 640px) {
+  .primary-metrics-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.p-metric-item {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.p-metric-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.p-metric-val {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.proximity-badge {
+  display: inline-flex;
+  align-items: center;
+}
+
+.proximity-badge.far {
+  color: #38bdf8;
+}
+
+.proximity-badge.approaching {
+  color: #f59e0b;
+  font-weight: 900;
+  text-shadow: 0 0 8px rgba(245, 158, 11, 0.4);
+}
+
+.proximity-badge.close {
+  color: #ef4444;
+  font-weight: 900;
+  text-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+}
+
+.proximity-badge.uncertain {
+  color: var(--text-muted);
+}
+
+.primary-controls-wrap {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quick-select-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.quick-select-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.btn-unlock-person {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #f87171;
+  border-radius: var(--radius-full);
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-unlock-person svg {
+  width: 13px;
+  height: 13px;
+  fill: currentColor;
+}
+
+.btn-unlock-person:hover {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: #ef4444;
+}
+
+.people-quick-select-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 28px;
+  align-items: center;
+}
+
+.btn-person-pill {
+  background: var(--bg-surface-card);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-full);
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-primary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all var(--transition-fast);
+}
+
+.btn-person-pill svg {
+  flex-shrink: 0;
+}
+
+.btn-person-pill:hover {
+  border-color: var(--accent-cyan);
+  background: rgba(69, 217, 237, 0.08);
+}
+
+.btn-person-pill.active {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.3);
+}
+
+.no-people-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.proximity-disclaimer-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.proximity-disclaimer-note svg {
+  width: 16px;
+  height: 16px;
+  fill: #f59e0b;
+  flex-shrink: 0;
+  margin-top: 1px;
+}

@@ -68,6 +68,11 @@ body.high-contrast-mode .camera-card,
 body.high-contrast-mode .section-card,
 body.high-contrast-mode .voice-assistant-card,
 body.high-contrast-mode .history-card,
+body.high-contrast-mode .primary-person-card,
+body.high-contrast-mode .p-metric-item,
+body.high-contrast-mode .primary-controls-wrap,
+body.high-contrast-mode .btn-person-pill,
+body.high-contrast-mode .proximity-disclaimer-note,
 body.high-contrast-mode .safety-disclaimer-card,
 body.high-contrast-mode .permission-instructions-card,
 body.high-contrast-mode .camera-select-row,
@@ -270,6 +275,10 @@ body.large-text-mode .a11y-toggle-card {
 }
 
 body.large-text-mode .detection-grid {
+  grid-template-columns: 1fr;
+}
+
+body.large-text-mode .primary-metrics-grid {
   grid-template-columns: 1fr;
 }
 
