@@ -1,0 +1,260 @@
+/* ==========================================================================
+   DRISVYA - Accessibility System & Overrides
+   High Contrast Mode, Large Text Mode, Reduced Motion & Screen Reader Tools
+   ========================================================================== */
+
+/* ==========================================================================
+   1. High Contrast Mode
+   ========================================================================== */
+body.high-contrast-mode {
+  --bg-app: #000000;
+  --bg-surface: #000000;
+  --bg-surface-elevated: #0d0d0d;
+  --bg-surface-card: #050505;
+  --bg-surface-glass: #000000;
+
+  --border-subtle: #ffffff;
+  --border-medium: #ffffff;
+  --border-focus: #ffff00;
+
+  --accent-cyan: #ffff00; /* Ultra-high contrast yellow */
+  --accent-cyan-hover: #ffff55;
+  --accent-cyan-glow: none;
+  --accent-cyan-subtle: rgba(255, 255, 0, 0.2);
+
+  --accent-blue: #00ffff; /* High-contrast cyan */
+  --accent-blue-deep: #00d2ff;
+
+  --status-online: #00ff66;
+  --status-online-glow: none;
+  --status-standby: #00ffff;
+  --status-warning: #ffff00;
+  --status-danger: #ff3333;
+  --status-danger-glow: none;
+
+  --text-primary: #ffffff;
+  --text-secondary: #ffff00;
+  --text-muted: #e2e8f0;
+  --text-inverse: #000000;
+
+  background: #000000 !important;
+}
+
+body.high-contrast-mode .app-wrapper {
+  border: 2px solid #ffffff;
+}
+
+body.high-contrast-mode .app-header {
+  border-bottom: 2px solid #ffffff;
+  background: #000000;
+}
+
+body.high-contrast-mode .brand-logo-mark {
+  border: 2px solid #ffff00;
+  background: #000000;
+}
+
+body.high-contrast-mode .brand-logo-mark svg {
+  fill: #ffff00;
+}
+
+body.high-contrast-mode .brand-title .brand-gradient {
+  background: none;
+  -webkit-text-fill-color: #ffffff;
+  color: #ffffff;
+}
+
+body.high-contrast-mode .camera-card,
+body.high-contrast-mode .section-card,
+body.high-contrast-mode .voice-assistant-card,
+body.high-contrast-mode .history-card,
+body.high-contrast-mode .safety-disclaimer-card,
+body.high-contrast-mode .permission-instructions-card,
+body.high-contrast-mode .modal-sheet {
+  border: 2px solid #ffffff !important;
+  background: #000000 !important;
+}
+
+body.high-contrast-mode .btn-primary-action,
+body.high-contrast-mode .btn-sticky-assist {
+  background: #ffff00 !important;
+  color: #000000 !important;
+  border: 3px solid #ffffff !important;
+  font-weight: 900;
+}
+
+body.high-contrast-mode .btn-primary-action.active,
+body.high-contrast-mode .btn-sticky-assist.active {
+  background: #ff3333 !important;
+  color: #ffffff !important;
+  border: 3px solid #ffffff !important;
+}
+
+body.high-contrast-mode .btn-secondary,
+body.high-contrast-mode .btn-sticky-repeat {
+  border: 2px solid #ffff00 !important;
+  background: #000000 !important;
+  color: #ffff00 !important;
+}
+
+body.high-contrast-mode .btn-secondary:hover,
+body.high-contrast-mode .btn-sticky-repeat:hover {
+  background: #ffff00 !important;
+  color: #000000 !important;
+}
+
+body.high-contrast-mode .a11y-toggle-card {
+  border: 2px solid #ffffff !important;
+  background: #000000 !important;
+}
+
+body.high-contrast-mode .a11y-toggle-card.active {
+  border: 2px solid #ffff00 !important;
+  background: #1a1a00 !important;
+}
+
+body.high-contrast-mode .custom-switch {
+  background: #333333;
+  border: 1px solid #ffffff;
+}
+
+body.high-contrast-mode .a11y-toggle-card.active .custom-switch {
+  background: #ffff00;
+}
+
+body.high-contrast-mode .a11y-toggle-card.active .switch-knob {
+  background: #000000;
+}
+
+body.high-contrast-mode .lang-btn,
+body.high-contrast-mode .speed-btn {
+  border: 1px solid #666666;
+  color: #ffffff;
+}
+
+body.high-contrast-mode .lang-btn.active,
+body.high-contrast-mode .speed-btn.active {
+  border: 2px solid #ffff00 !important;
+  background: #ffff00 !important;
+  color: #000000 !important;
+}
+
+body.high-contrast-mode .metric-card {
+  border: 1.5px solid #ffffff;
+  background: #000000;
+}
+
+body.high-contrast-mode .metric-number {
+  color: #ffff00;
+}
+
+body.high-contrast-mode .metric-detail-text {
+  color: #00ffff;
+}
+
+body.high-contrast-mode .safety-disclaimer-card {
+  border: 3px solid #ffff00 !important;
+}
+
+body.high-contrast-mode .safety-title {
+  color: #ffff00;
+}
+
+body.high-contrast-mode .safety-desc {
+  color: #ffffff;
+}
+
+body.high-contrast-mode .status-pill {
+  border: 2px solid #00ff66;
+  background: #000000;
+  color: #00ff66;
+}
+
+body.high-contrast-mode .status-pill.offline {
+  border-color: #ff3333;
+  color: #ff3333;
+}
+
+body.high-contrast-mode .history-item {
+  border: 1.5px solid #ffffff;
+  background: #000000;
+}
+
+body.high-contrast-mode .hud-corner {
+  border-color: #ffff00;
+  border-width: 4px;
+}
+
+body.high-contrast-mode .sticky-mobile-bar {
+  border-top: 2px solid #ffffff;
+  background: #000000;
+}
+
+/* ==========================================================================
+   2. Large Text Mode
+   ========================================================================== */
+body.large-text-mode {
+  --font-scale: 1.25;
+}
+
+body.large-text-mode .brand-title {
+  font-size: calc(1.2rem * var(--font-scale));
+}
+
+body.large-text-mode .hero-heading {
+  font-size: calc(1.6rem * var(--font-scale));
+}
+
+body.large-text-mode .btn-primary-action {
+  min-height: 72px;
+  font-size: calc(1.15rem * var(--font-scale));
+}
+
+body.large-text-mode .btn-secondary {
+  min-height: 58px;
+  font-size: calc(0.95rem * var(--font-scale));
+}
+
+body.large-text-mode .a11y-toggle-card {
+  min-height: 98px;
+}
+
+body.large-text-mode .detection-grid {
+  grid-template-columns: 1fr;
+}
+
+body.large-text-mode .metric-card.wide {
+  grid-column: span 1;
+}
+
+body.large-text-mode .a11y-controls-grid {
+  grid-template-columns: 1fr;
+}
+
+/* ==========================================================================
+   3. Reduced Motion
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .status-dot::after {
+    display: none;
+  }
+
+  .hud-scan-line {
+    display: none !important;
+  }
+}
+
+/* ==========================================================================
+   4. High Visibility Focus Ring
+   ========================================================================== */
+body.high-contrast-mode :focus-visible {
+  outline: 4px solid #ffff00 !important;
+  outline-offset: 4px !important;
+}

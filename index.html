@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#07111f">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="DRISVYA — Your World, Understood. Mobile-first AI-powered assistive vision platform designed to help visually impaired individuals perceive and understand their surroundings.">
+  <title>DRISVYA — Your World, Understood</title>
+
+  <!-- Core Stylesheets -->
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/accessibility.css">
+</head>
+<body>
+  <!-- Screen Reader Skip Link -->
+  <a href="#mainContent" class="skip-link">Skip to main content</a>
+
+  <!-- Screen Reader Live Announcements -->
+  <div id="a11yAnnouncer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- Mobile Frame Container (Optimized for Android smartphones) -->
+  <div class="app-wrapper">
+
+    <!-- ====================================================================
+         1. HEADER: DRISVYA Minimal Logo, Status Indicator, Settings
+         ==================================================================== -->
+    <header class="app-header" role="banner">
+      <div class="brand-container">
+        <!-- Minimal Vision-Inspired Symbol Logo -->
+        <div class="brand-logo-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" fill="none">
+            <!-- Outer Eye Perception Arc -->
+            <path d="M4 16C7.5 9.5 11.5 6.5 16 6.5C20.5 6.5 24.5 9.5 28 16C24.5 22.5 20.5 25.5 16 25.5C11.5 25.5 7.5 22.5 4 16Z" stroke="#45d9ed" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+            <!-- Concentric Optical Iris -->
+            <circle cx="16" cy="16" r="5" stroke="#38bdf8" stroke-width="2"/>
+            <!-- Central Focal Core -->
+            <circle cx="16" cy="16" r="2" fill="#45d9ed"/>
+            <!-- Machine Vision Vertical Alignment Ticks -->
+            <path d="M16 2.5V5M16 27V29.5" stroke="#45d9ed" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1 class="brand-title">
+            <span class="brand-gradient">DRISVYA</span>
+          </h1>
+          <span class="brand-subtitle">Assistive Vision</span>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <!-- Live Connection Status -->
+        <div id="systemStatusPill" class="status-pill" role="status" aria-label="System status: Online and ready">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="systemStatusText">Online • Ready</span>
+        </div>
+
+        <!-- Settings Icon Button -->
+        <button id="btnOpenSettings" class="icon-btn" aria-label="Open Settings and Accessibility preferences" aria-haspopup="dialog" title="Settings (Press S)">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path fill-rule="evenodd" d="M11.078 2.25c-.917 0-1.699.663-1.85 1.567L9.05 4.889c-.02.12-.115.26-.297.348a7.493 7.493 0 00-.986.57c-.166.115-.334.126-.45.083L6.05 5.385c-.868-.318-1.834.053-2.274.836l-1.077 1.865a1.875 1.875 0 00.432 2.378l1.01.815c.105.085.155.228.14.364a7.514 7.514 0 000 1.914c.015.136-.035.28-.14.364l-1.01.815a1.875 1.875 0 00-.432 2.378l1.077 1.865c.44.783 1.406 1.154 2.274.836l1.267-.505c.116-.043.284-.032.45.083.31.216.639.408.986.57.182.088.277.228.297.348l.178 1.072c.151.904.933 1.567 1.85 1.567h2.156c.917 0 1.699-.663 1.85-1.567l.178-1.072c.02-.12.115-.26.297-.348.347-.162.676-.354.986-.57.166-.115.334-.126.45-.083l1.267.505c.868.318 1.834-.053 2.274-.836l1.077-1.865a1.875 1.875 0 00-.432-2.378l-1.01-.815c-.105-.085-.155-.228-.14-.364a7.514 7.514 0 000-1.914c-.015-.136.035-.28.14-.364l1.01-.815a1.875 1.875 0 00.432-2.378l-1.077-1.865c-.44-.783-1.406-1.154-2.274-.836l-1.267.505c-.116.043-.284.032-.45-.083a7.493 7.493 0 00-.986-.57c-.182-.088-.277-.228-.297-.348l-.178-1.072a1.875 1.875 0 00-1.85-1.567h-2.156zM12 15.75a3.75 3.75 0 100-7.5 3.75 3.75 0 000 7.5z" clip-rule="evenodd" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Flow -->
+    <main id="mainContent" class="app-main" role="main">
+
+      <!-- ====================================================================
+           2. HERO SECTION: Official Tagline & Category
+           ==================================================================== -->
+      <section class="hero-section" aria-labelledby="heroTitle">
+        <div class="hero-tagline-badge">
+          <span class="hero-tagline-dot" aria-hidden="true"></span>
+          <span>AI-Powered Assistive Vision Platform</span>
+        </div>
+        <h2 id="heroTitle" class="hero-heading">
+          <span>Your World, Understood.</span>
+        </h2>
+        <p class="hero-subtitle">
+          Real-time environmental perception and voice assistance designed to empower visually impaired individuals with greater independence.
+        </p>
+        <div class="hero-actions-row">
+          <button id="btnListenOverview" class="btn-text-sm" style="color: var(--accent-cyan); display: inline-flex; align-items: center; gap: 6px; padding: 4px 0;" aria-label="Listen to voice overview of DRISVYA">
+            <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: currentColor;" aria-hidden="true">
+              <path d="M13.5 4.06c0-1.336-1.616-2.005-2.56-1.06l-4.5 4.5H4.5A2.25 2.25 0 002.25 9.75v4.5A2.25 2.25 0 004.5 16.5h1.94l4.5 4.5c.944.945 2.56.276 2.56-1.06V4.06zM18.53 7.47a.75.75 0 00-1.06 1.06 5.25 5.25 0 010 7.42.75.75 0 101.06 1.06 6.75 6.75 0 000-9.54z"/>
+            </svg>
+            <span>Listen to Overview</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- ====================================================================
+           3. MAIN CAMERA CARD: Viewfinder HUD, Big CTA, Status, Overlay Canvas
+           ==================================================================== -->
+      <section id="cameraCard" class="camera-card" aria-label="Assistive Camera Viewfinder">
+        <!-- Viewfinder Viewport -->
+        <div class="camera-preview-container" aria-label="Camera preview area">
+          
+          <!-- Real HTML5 Video element (binds to rear camera when activated) -->
+          <video id="cameraVideo" class="camera-video" playsinline autoplay muted aria-label="Live camera feed"></video>
+
+          <!-- Canvas Overlay (Pre-wired for TensorFlow.js & COCO-SSD bounding boxes in Phase 2) -->
+          <canvas id="overlayCanvas" class="camera-overlay-canvas" aria-hidden="true"></canvas>
+
+          <!-- Inactive Placeholder State -->
+          <div id="cameraPlaceholder" class="camera-placeholder">
+            <div class="placeholder-icon-ring" aria-hidden="true">
+              <svg viewBox="0 0 32 32" fill="none">
+                <path d="M4 16C7.5 9.5 11.5 6.5 16 6.5C20.5 6.5 24.5 9.5 28 16C24.5 22.5 20.5 25.5 16 25.5C11.5 25.5 7.5 22.5 4 16Z" stroke="#45d9ed" stroke-width="2"/>
+                <circle cx="16" cy="16" r="4.5" stroke="#45d9ed" stroke-width="1.8"/>
+              </svg>
+            </div>
+            <h3 class="placeholder-title">Assistive Camera Ready</h3>
+            <p class="placeholder-desc">Rear camera viewfinder is in standby. Tap START ASSISTANCE below to open the optical feed.</p>
+          </div>
+
+          <!-- Assistive Viewfinder HUD Overlay -->
+          <div class="viewfinder-hud" aria-hidden="true">
+            <div class="hud-top-bar">
+              <span id="hudLiveBadge" class="hud-badge">
+                <span class="hud-badge-dot"></span>
+                <span class="hud-badge-text">STANDBY</span>
+              </span>
+              <span class="hud-badge">HUD 1.0</span>
+            </div>
+
+            <!-- Optical Reticle & Guides -->
+            <div class="hud-reticle"></div>
+            <div class="hud-scan-line"></div>
+
+            <!-- Four Corner Framing Brackets -->
+            <div class="hud-corner hud-corner-tl"></div>
+            <div class="hud-corner hud-corner-tr"></div>
+            <div class="hud-corner hud-corner-bl"></div>
+            <div class="hud-corner hud-corner-br"></div>
+          </div>
+        </div>
+
+        <!-- Camera Card Action Controls -->
+        <div class="camera-card-body">
+          <!-- Live Camera Status Strip -->
+          <div class="camera-status-strip" role="status" aria-live="polite">
+            <div class="camera-status-left">
+              <span class="status-icon-indicator" aria-hidden="true"></span>
+              <span class="camera-status-label">Status:</span>
+            </div>
+            <span id="cameraStatusValue" class="camera-status-value">Camera Inactive • Ready to Connect</span>
+          </div>
+
+          <!-- Large Prominent START ASSISTANCE Button -->
+          <button id="btnToggleAssistance" class="btn-primary-action" aria-pressed="false" aria-label="Start visual assistance">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path fill-rule="evenodd" d="M4.5 5.653c0-1.426 1.529-2.33 2.779-1.643l11.54 6.348c1.295.712 1.295 2.573 0 3.285L7.28 19.991c-1.25.687-2.779-.217-2.779-1.643V5.653z" clip-rule="evenodd"/>
+            </svg>
+            <span class="btn-label-text">START ASSISTANCE</span>
+          </button>
+
+          <!-- Camera Permission Instructions -->
+          <div class="permission-instructions-card" role="region" aria-label="Camera permission and usage instructions">
+            <div class="permission-header">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path fill-rule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm8.706-1.442c1.146-.573 2.437.463 2.126 1.706l-.709 2.836.042-.02a.75.75 0 01.67 1.34l-.04.022c-1.147.573-2.438-.463-2.127-1.706l.71-2.836-.042.02a.75.75 0 11-.671-1.34l.041-.022zM12 9a.75.75 0 100-1.5.75.75 0 000 1.5z" clip-rule="evenodd"/>
+              </svg>
+              <span>Camera Permission & Android Instructions</span>
+            </div>
+            <div class="permission-steps">
+              <div class="permission-step-item">
+                <span class="step-num">1</span>
+                <span>When prompted by your browser, tap <strong>"Allow"</strong> for camera access.</span>
+              </div>
+              <div class="permission-step-item">
+                <span class="step-num">2</span>
+                <span>If blocked in Android Chrome: Tap the tune/lock icon in the URL bar → Permissions → Camera → Set to <strong>"Allow"</strong> and refresh.</span>
+              </div>
+              <div class="permission-step-item">
+                <span class="step-num">3</span>
+                <span>Hold phone vertically at chest height with the rear camera facing forward for optimal perception.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ====================================================================
+           4. DETECTION SUMMARY: Objects, People, Vehicles, Nearest Object
+           ==================================================================== -->
+      <section class="section-card" aria-labelledby="detectionSummaryHeading">
+        <div class="section-header">
+          <h3 id="detectionSummaryHeading" class="section-title">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/>
+              <path fill-rule="evenodd" d="M1.323 11.447C2.811 6.976 7.028 3.75 12.001 3.75c4.97 0 9.185 3.223 10.675 7.69.12.362.12.752 0 1.113-1.487 4.471-5.705 7.697-10.677 7.697-4.97 0-9.186-3.223-10.675-7.69a1.762 1.762 0 010-1.113zM17.25 12a5.25 5.25 0 11-10.5 0 5.25 5.25 0 0110.5 0z" clip-rule="evenodd"/>
+            </svg>
+            <span>Detection Summary</span>
+          </h3>
+          <span class="section-badge-phase">Phase 2 Ready</span>
+        </div>
+
+        <!-- 4-metric grid -->
+        <div class="detection-grid" role="region" aria-label="Detected entity statistics">
+          <!-- Metric 1: Objects Detected -->
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-label">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.378 1.602a.75.75 0 00-.756 0L3 6.632l9 5.25 9-5.25-8.622-5.03zM21.75 7.93l-9 5.25v9l8.628-5.032a.75.75 0 00.372-.648V7.93zM11.25 22.18v-9l-9-5.25v8.57a.75.75 0 00.372.648l8.628 5.033z"/></svg>
+                Objects
+              </span>
+              <span class="metric-status-pill">Standby</span>
+            </div>
+            <div class="metric-value-row">
+              <span id="countObjects" class="metric-number" aria-label="Objects detected: 0">0</span>
+            </div>
+          </div>
+
+          <!-- Metric 2: People Detected -->
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-label">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path fill-rule="evenodd" d="M7.5 6a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zM3.751 20.105a8.25 8.25 0 0116.498 0 .75.75 0 01-.437.695A18.683 18.683 0 0112 22.5c-2.786 0-5.433-.608-7.812-1.7a.75.75 0 01-.437-.695z" clip-rule="evenodd"/></svg>
+                People
+              </span>
+              <span class="metric-status-pill">Standby</span>
+            </div>
+            <div class="metric-value-row">
+              <span id="countPeople" class="metric-number" aria-label="People detected: 0">0</span>
+            </div>
+          </div>
+
+          <!-- Metric 3: Vehicles Detected -->
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-label">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.375 4.5C2.339 4.5 1.5 5.34 1.5 6.375V13.5h1.25v2.25a2.25 2.25 0 004.5 0V13.5h9.5v2.25a2.25 2.25 0 004.5 0V13.5h1.25V6.375c0-1.036-.84-1.875-1.875-1.875H3.375zM4.5 10.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm15 0a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"/></svg>
+                Vehicles
+              </span>
+              <span class="metric-status-pill">Standby</span>
+            </div>
+            <div class="metric-value-row">
+              <span id="countVehicles" class="metric-number" aria-label="Vehicles detected: 0">0</span>
+            </div>
+          </div>
+
+          <!-- Metric 4: Nearest Object (Spans full width) -->
+          <div class="metric-card wide">
+            <div class="metric-header">
+              <span class="metric-label">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path fill-rule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zM12.75 6a.75.75 0 00-1.5 0v6c0 .414.336.75.75.75h4.5a.75.75 0 000-1.5h-3.75V6z" clip-rule="evenodd"/></svg>
+                Nearest Obstacle / Object
+              </span>
+              <span class="metric-status-pill">Proximity</span>
+            </div>
+            <div class="metric-value-row" style="margin-top: 4px;">
+              <span id="valNearestObject" class="metric-detail-text">None within range</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Honest Phase 1 status message -->
+        <div class="phase-notice-box" role="status">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path fill-rule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm8.706-1.442c1.146-.573 2.437.463 2.126 1.706l-.709 2.836.042-.02a.75.75 0 01.67 1.34l-.04.022c-1.147.573-2.438-.463-2.127-1.706l.71-2.836-.042.02a.75.75 0 11-.671-1.34l.041-.022zM12 9a.75.75 0 100-1.5.75.75 0 000 1.5z" clip-rule="evenodd"/>
+          </svg>
+          <span>AI Vision Pipeline ready for Phase 2 neural network model. No simulated detections are shown.</span>
+        </div>
+      </section>
+
+      <!-- ====================================================================
+           5. VOICE ASSISTANT CONTROL PANEL: Status, Lang, Speed, Mute, Repeat
+           ==================================================================== -->
+      <section class="voice-assistant-card" aria-labelledby="voiceAssistantHeading">
+        <div class="section-header">
+          <h3 id="voiceAssistantHeading" class="section-title">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"/>
+            </svg>
+            <span>Voice Assistant Panel</span>
+          </h3>
+        </div>
+
+        <!-- Voice Status Bar with Waveform -->
+        <div class="voice-status-bar" role="status">
+          <div class="voice-status-info">
+            <span>Status:</span>
+            <strong id="voiceAssistantStatusText" style="color: var(--text-primary);">Ready</strong>
+          </div>
+          <div id="audioVisualizer" class="audio-visualizer" aria-hidden="true">
+            <div class="audio-bar"></div>
+            <div class="audio-bar"></div>
+            <div class="audio-bar"></div>
+            <div class="audio-bar"></div>
+          </div>
+        </div>
+
+        <!-- English / Hindi Language Selector -->
+        <div class="voice-controls-row">
+          <span class="control-label">Voice Language</span>
+          <div class="lang-switch-group" role="group" aria-label="Speech Language Selection">
+            <button id="btnLangEn" class="lang-btn active" aria-pressed="true" aria-label="Select English speech output">
+              <span>English</span>
+              <span style="font-size: 11px; opacity: 0.7;">(en-US/IN)</span>
+            </button>
+            <button id="btnLangHi" class="lang-btn" aria-pressed="false" aria-label="Select Hindi speech output">
+              <span>हिन्दी</span>
+              <span style="font-size: 11px; opacity: 0.7;">(Hindi)</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Speech Speed Presets -->
+        <div class="voice-controls-row">
+          <span class="control-label">Voice Speed</span>
+          <div class="speed-preset-group" role="group" aria-label="Speech speed presets">
+            <button id="speedSlow" class="speed-btn" aria-pressed="false">Slow (0.8x)</button>
+            <button id="speedNormal" class="speed-btn active" aria-pressed="true">Normal (1.0x)</button>
+            <button id="speedFast" class="speed-btn" aria-pressed="false">Fast (1.2x)</button>
+          </div>
+        </div>
+
+        <!-- Voice Actions: Mute and Repeat -->
+        <div class="voice-actions-grid">
+          <!-- Mute / Unmute Control -->
+          <button id="btnMuteVoice" class="btn-secondary" aria-pressed="false" aria-label="Toggle mute voice assistance" title="Shortcut: M">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M13.5 4.06c0-1.336-1.616-2.005-2.56-1.06l-4.5 4.5H4.5A2.25 2.25 0 002.25 9.75v4.5A2.25 2.25 0 004.5 16.5h1.94l4.5 4.5c.944.945 2.56.276 2.56-1.06V4.06zM18.53 7.47a.75.75 0 00-1.06 1.06 5.25 5.25 0 010 7.42.75.75 0 101.06 1.06 6.75 6.75 0 000-9.54z"/>
+            </svg>
+            <span class="btn-mute-text">Mute Voice</span>
+          </button>
+
+          <!-- Repeat Announcement Button -->
+          <button id="btnRepeatVoice" class="btn-secondary" aria-label="Repeat last voice announcement" title="Shortcut: R">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path fill-rule="evenodd" d="M4.755 10.059a7.5 7.5 0 0112.548-3.364l1.903 1.903h-3.183a.75.75 0 100 1.5h4.992a.75.75 0 00.75-.75V4.356a.75.75 0 00-1.5 0v3.18l-1.9-1.9A9 9 0 003.306 9.67a.75.75 0 101.45.388zm14.49 3.882a7.5 7.5 0 01-12.548 3.364l-1.902-1.903h3.183a.75.75 0 000-1.5H2.986a.75.75 0 00-.75.75v4.992a.75.75 0 001.5 0v-3.18l1.9 1.9a9 9 0 0014.06-4.004.75.75 0 00-1.45-.389z" clip-rule="evenodd"/>
+            </svg>
+            <span>Repeat Audio</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- ====================================================================
+           6. ACCESSIBILITY SETTINGS: High Contrast, Large Text, Voice, Vibration
+           ==================================================================== -->
+      <section class="section-card" aria-labelledby="a11yControlsHeading">
+        <div class="section-header">
+          <h3 id="a11yControlsHeading" class="section-title">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 2a10 10 0 100 20 10 10 0 000-20zM9 9a3 3 0 116 0 3 3 0 01-6 0zm-1 8a4 4 0 018 0H8z"/>
+            </svg>
+            <span>Accessibility Settings</span>
+          </h3>
+        </div>
+
+        <!-- 4 Quick Toggles -->
+        <div class="a11y-controls-grid" role="group" aria-label="Quick Accessibility Toggles">
+          <!-- Toggle 1: High Contrast -->
+          <div id="toggleHighContrast" class="a11y-toggle-card" role="switch" aria-checked="false" tabindex="0" aria-label="Toggle High Contrast Mode (Shortcut H)">
+            <div class="toggle-card-top">
+              <div class="toggle-icon">
+                <svg viewBox="0 0 24 24"><path d="M12 2.25a9.75 9.75 0 109.75 9.75A9.75 9.75 0 0012 2.25zm0 18a8.25 8.25 0 010-16.5v16.5z"/></svg>
+              </div>
+              <div class="custom-switch" aria-hidden="true"><div class="switch-knob"></div></div>
+            </div>
+            <div class="toggle-card-info">
+              <span class="toggle-title">High Contrast</span>
+              <span class="toggle-subtitle">Black & yellow UI</span>
+            </div>
+          </div>
+
+          <!-- Toggle 2: Large Text -->
+          <div id="toggleLargeText" class="a11y-toggle-card" role="switch" aria-checked="false" tabindex="0" aria-label="Toggle Large Text Mode (Shortcut L)">
+            <div class="toggle-card-top">
+              <div class="toggle-icon">
+                <svg viewBox="0 0 24 24"><path d="M4 6h16v3H13v11H9V9H4V6zm14 5h4v2h-1v7h-2v-7h-1v-2z"/></svg>
+              </div>
+              <div class="custom-switch" aria-hidden="true"><div class="switch-knob"></div></div>
+            </div>
+            <div class="toggle-card-info">
+              <span class="toggle-title">Large Text</span>
+              <span class="toggle-subtitle">Enlarge typography</span>
+            </div>
+          </div>
+
+          <!-- Toggle 3: Voice Alerts -->
+          <div id="toggleVoiceAlerts" class="a11y-toggle-card active" role="switch" aria-checked="true" tabindex="0" aria-label="Toggle Voice Alerts">
+            <div class="toggle-card-top">
+              <div class="toggle-icon">
+                <svg viewBox="0 0 24 24"><path d="M13.5 4.06c0-1.336-1.616-2.005-2.56-1.06l-4.5 4.5H4.5A2.25 2.25 0 002.25 9.75v4.5A2.25 2.25 0 004.5 16.5h1.94l4.5 4.5c.944.945 2.56.276 2.56-1.06V4.06z"/></svg>
+              </div>
+              <div class="custom-switch" aria-hidden="true"><div class="switch-knob"></div></div>
+            </div>
+            <div class="toggle-card-info">
+              <span class="toggle-title">Voice Alerts</span>
+              <span class="toggle-subtitle">Audio announcements</span>
+            </div>
+          </div>
+
+          <!-- Toggle 4: Vibration / Haptic -->
+          <div id="toggleVibration" class="a11y-toggle-card active" role="switch" aria-checked="true" tabindex="0" aria-label="Toggle Haptic Vibration Feedback">
+            <div class="toggle-card-top">
+              <div class="toggle-icon">
+                <svg viewBox="0 0 24 24"><path d="M7 5a2 2 0 012-2h6a2 2 0 012 2v14a2 2 0 01-2 2H9a2 2 0 01-2-2V5zm2 13h6V6H9v12zM3 8a1 1 0 011 1v6a1 1 0 11-2 0V9a1 1 0 011-1zm18 0a1 1 0 011 1v6a1 1 0 11-2 0V9a1 1 0 011-1z"/></svg>
+              </div>
+              <div class="custom-switch" aria-hidden="true"><div class="switch-knob"></div></div>
+            </div>
+            <div class="toggle-card-info">
+              <span class="toggle-title">Vibration</span>
+              <span class="toggle-subtitle">Haptic touch cues</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ====================================================================
+           7. DETECTION HISTORY & ACTIVITY: List with Proper Empty State
+           ==================================================================== -->
+      <section class="history-card" aria-labelledby="historyHeading">
+        <div class="history-header">
+          <h3 id="historyHeading" class="section-title">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path fill-rule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zM12.75 6a.75.75 0 00-1.5 0v6c0 .414.336.75.75.75h4.5a.75.75 0 000-1.5h-3.75V6z" clip-rule="evenodd"/>
+            </svg>
+            <span>Detection History</span>
+          </h3>
+          <button id="btnClearHistory" class="btn-text-sm" aria-label="Clear detection history">Clear</button>
+        </div>
+
+        <!-- Proper Empty State Before Detection Starts -->
+        <div id="historyEmptyState" class="history-empty-state" style="display: none;" aria-label="Empty detection history">
+          <div class="empty-state-symbol" aria-hidden="true">⌖</div>
+          <span class="empty-state-title">No detections recorded yet</span>
+          <p class="empty-state-desc">Start assistance to scan your surroundings. Objects, obstacles, and navigation cues will be listed here.</p>
+        </div>
+
+        <!-- Timeline Log of Detected Events & Activities -->
+        <ul id="detectionHistoryList" class="detection-history-list" aria-live="polite" aria-label="Detection history and event log">
+          <!-- Dynamic items populate here via app.js -->
+        </ul>
+      </section>
+
+      <!-- ====================================================================
+           8. SAFETY DISCLAIMER: Supplemental Mobility Warning
+           ==================================================================== -->
+      <section class="safety-disclaimer-card" role="note" aria-label="Important Safety Notice">
+        <div class="safety-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path fill-rule="evenodd" d="M11.484 2.17a.75.75 0 011.032 0 11.209 11.209 0 007.877 3.08.75.75 0 01.722.515 12.74 12.74 0 01.635 3.985c0 5.942-4.064 10.933-9.563 12.321a.75.75 0 01-.374 0C6.314 20.683 2.25 15.692 2.25 9.75c0-1.39.223-2.73.635-3.985a.75.75 0 01.722-.516l.143.001c2.996 0 5.718-1.17 7.734-3.08zM12 8.25a.75.75 0 01.75.75v3.75a.75.75 0 01-1.5 0V9a.75.75 0 01.75-.75zm0 8.25a.75.75 0 100-1.5.75.75 0 000 1.5z" clip-rule="evenodd"/>
+          </svg>
+        </div>
+        <div class="safety-content">
+          <h4 class="safety-title">Important Safety Disclaimer</h4>
+          <p class="safety-desc">
+            DRISVYA is an assistive preview platform designed to supplement environmental awareness. <strong>It does NOT replace a white cane or guide dog.</strong> Always use standard primary mobility aids, and proceed with caution in hazardous or unfamiliar environments.
+          </p>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer style="padding: var(--space-md); text-align: center; font-size: 11px; color: var(--text-muted); border-top: 1px solid var(--border-subtle); margin-bottom: 50px;" role="contentinfo">
+      <span>DRISVYA · AI-Powered Assistive Vision Platform · Your World, Understood.</span>
+    </footer>
+
+    <!-- ====================================================================
+         STICKY ANDROID ACTION BAR (Always within thumb reach)
+         ==================================================================== -->
+    <aside class="sticky-mobile-bar" aria-label="Quick Assistance Actions">
+      <div class="sticky-action-inner">
+        <button id="btnStickyAssist" class="btn-sticky-assist" aria-label="Toggle Assistance" aria-pressed="false">
+          <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; fill: currentColor;" aria-hidden="true">
+            <path fill-rule="evenodd" d="M4.5 5.653c0-1.426 1.529-2.33 2.779-1.643l11.54 6.348c1.295.712 1.295 2.573 0 3.285L7.28 19.991c-1.25.687-2.779-.217-2.779-1.643V5.653z" clip-rule="evenodd"/>
+          </svg>
+          <span class="btn-sticky-label">START ASSISTANCE</span>
+        </button>
+        <button id="btnStickyRepeat" class="btn-sticky-repeat" aria-label="Repeat last voice announcement" title="Repeat Audio">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path fill-rule="evenodd" d="M4.755 10.059a7.5 7.5 0 0112.548-3.364l1.903 1.903h-3.183a.75.75 0 100 1.5h4.992a.75.75 0 00.75-.75V4.356a.75.75 0 00-1.5 0v3.18l-1.9-1.9A9 9 0 003.306 9.67a.75.75 0 101.45.388zm14.49 3.882a7.5 7.5 0 01-12.548 3.364l-1.902-1.903h3.183a.75.75 0 000-1.5H2.986a.75.75 0 00-.75.75v4.992a.75.75 0 001.5 0v-3.18l1.9 1.9a9 9 0 0014.06-4.004.75.75 0 00-1.45-.389z" clip-rule="evenodd"/>
+          </svg>
+        </button>
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- ====================================================================
+       ACCESSIBLE SETTINGS MODAL / DIALOG
+       ==================================================================== -->
+  <div id="settingsModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" aria-hidden="true">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h3 id="settingsModalTitle" class="modal-title">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill-rule="evenodd" d="M11.078 2.25c-.917 0-1.699.663-1.85 1.567L9.05 4.889c-.02.12-.115.26-.297.348a7.493 7.493 0 00-.986.57c-.166.115-.334.126-.45.083L6.05 5.385c-.868-.318-1.834.053-2.274.836l-1.077 1.865a1.875 1.875 0 00.432 2.378l1.01.815c.105.085.155.228.14.364a7.514 7.514 0 000 1.914c.015.136-.035.28-.14.364l-1.01.815a1.875 1.875 0 00-.432 2.378l1.077 1.865c.44.783 1.406 1.154 2.274.836l1.267-.505c.116-.043.284-.032.45.083.31.216.639.408.986.57.182.088.277.228.297.348l.178 1.072c.151.904.933 1.567 1.85 1.567h2.156c.917 0 1.699-.663 1.85-1.567l.178-1.072c.02-.12.115-.26.297-.348.347-.162.676-.354.986-.57.166-.115.334-.126.45-.083l1.267.505c.868.318 1.834-.053 2.274-.836l1.077-1.865a1.875 1.875 0 00-.432-2.378l-1.01-.815c-.105-.085-.155-.228-.14-.364a7.514 7.514 0 000-1.914c-.015-.136.035-.28.14-.364l1.01-.815a1.875 1.875 0 00.432-2.378l-1.077-1.865c-.44-.783-1.406-1.154-2.274-.836l-1.267.505c-.116.043-.284.032-.45-.083a7.493 7.493 0 00-.986-.57c-.182-.088-.277-.228-.297-.348l-.178-1.072a1.875 1.875 0 00-1.85-1.567h-2.156zM12 15.75a3.75 3.75 0 100-7.5 3.75 3.75 0 000 7.5z" clip-rule="evenodd" /></svg>
+          <span>DRISVYA Preferences</span>
+        </h3>
+        <button id="btnCloseSettings" class="icon-btn" aria-label="Close Settings modal (Shortcut: Escape)" style="width: 38px; height: 38px;">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill-rule="evenodd" d="M5.47 5.47a.75.75 0 011.06 0L12 10.94l5.47-5.47a.75.75 0 111.06 1.06L13.06 12l5.47 5.47a.75.75 0 11-1.06 1.06L12 13.06l-5.47 5.47a.75.75 0 01-1.06-1.06L10.94 12 5.47 6.53a.75.75 0 010-1.06z" clip-rule="evenodd"/></svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Speech Rate Slider -->
+        <div class="setting-row">
+          <div class="setting-row-header">
+            <label for="rangeSpeechRate" class="setting-name">Voice Narration Speed</label>
+            <span id="valSpeechRate" class="setting-value-badge">1.0x</span>
+          </div>
+          <p class="setting-desc">Adjust the speed of the voice narration.</p>
+          <input type="range" id="rangeSpeechRate" class="range-slider" min="0.7" max="1.6" step="0.1" value="1.0" aria-label="Speech speed slider">
+        </div>
+
+        <!-- Earcon Sound Cues Toggle -->
+        <div class="setting-row">
+          <div class="setting-row-header">
+            <span class="setting-name">Earcon Audio Tones</span>
+            <input type="checkbox" id="toggleSoundCues" checked style="accent-color: var(--accent-cyan); width: 20px; height: 20px;" aria-label="Toggle earcon audio beeps and chimes">
+          </div>
+          <p class="setting-desc">Play acoustic chimes on start, stop, and action triggers.</p>
+        </div>
+
+        <!-- Keyboard Shortcuts Reference -->
+        <div class="setting-row">
+          <span class="setting-name">Keyboard Shortcuts</span>
+          <ul class="shortcuts-list" aria-label="Keyboard Shortcuts List">
+            <li class="shortcut-item"><span>Toggle Assistance</span> <kbd class="kbd-badge">Space</kbd></li>
+            <li class="shortcut-item"><span>Mute / Unmute Voice</span> <kbd class="kbd-badge">M</kbd></li>
+            <li class="shortcut-item"><span>Repeat Last Audio</span> <kbd class="kbd-badge">R</kbd></li>
+            <li class="shortcut-item"><span>Toggle High Contrast</span> <kbd class="kbd-badge">H</kbd></li>
+            <li class="shortcut-item"><span>Toggle Large Text</span> <kbd class="kbd-badge">L</kbd></li>
+            <li class="shortcut-item"><span>Open Settings</span> <kbd class="kbd-badge">S</kbd></li>
+            <li class="shortcut-item"><span>Close Modal</span> <kbd class="kbd-badge">Esc</kbd></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="btnResetSettings" class="btn-text-sm" style="color: #f87171;" aria-label="Reset all preferences to default">Reset to Defaults</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/sound.js"></script>
+  <script src="js/voice.js"></script>
+  <script src="js/accessibility.js"></script>
+  <script src="js/camera.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
