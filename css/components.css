@@ -371,6 +371,28 @@
   box-shadow: 0 0 12px var(--accent-cyan-glow);
 }
 
+/* Lens Availability Note (Explains standard vs ultra-wide honestly) */
+.lens-status-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: rgba(10, 25, 47, 0.7);
+  border: 1px solid rgba(69, 217, 237, 0.22);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.lens-status-note svg {
+  width: 15px;
+  height: 15px;
+  fill: var(--accent-cyan);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
 /* Camera Status Bar */
 .camera-status-strip {
   display: flex;
@@ -696,6 +718,49 @@
   color: var(--text-secondary);
 }
 
+.voice-status-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Audio Route Status Pill (Bluetooth & System Output) */
+.audio-route-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(69, 217, 237, 0.08);
+  border: 1px solid rgba(69, 217, 237, 0.2);
+  border-radius: var(--radius-full);
+  padding: 3px 9px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  white-space: nowrap;
+}
+
+.audio-route-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  box-shadow: 0 0 6px var(--accent-cyan-glow);
+}
+
+/* Voice Status Dot Indicator */
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-standby);
+  transition: all var(--transition-fast);
+}
+
+.status-dot.online {
+  background: var(--status-online);
+  box-shadow: 0 0 8px var(--status-online);
+}
+
 /* Audio Wave Visualizer */
 .audio-visualizer {
   display: flex;
@@ -808,7 +873,7 @@
 /* Voice Action Buttons */
 .voice-actions-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   gap: var(--space-sm);
 }
 
@@ -827,6 +892,17 @@
   gap: 8px;
   cursor: pointer;
   transition: all var(--transition-fast);
+}
+
+.btn-secondary.btn-test-voice {
+  border-color: rgba(69, 217, 237, 0.4);
+  color: var(--accent-cyan);
+}
+
+.btn-secondary.btn-test-voice:hover {
+  background: rgba(69, 217, 237, 0.2);
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 12px var(--accent-cyan-subtle);
 }
 
 .btn-secondary:hover {

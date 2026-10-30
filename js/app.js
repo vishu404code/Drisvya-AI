@@ -172,6 +172,16 @@ class DrisvyaApp {
       });
     }
 
+    // Test Voice Announcement
+    const btnTestVoice = document.getElementById('btnTestVoice');
+    if (btnTestVoice) {
+      btnTestVoice.addEventListener('click', () => {
+        if (window.voiceAssistant) {
+          window.voiceAssistant.testVoice();
+        }
+      });
+    }
+
     // Repeat Announcement
     if (btnRepeatVoice) {
       btnRepeatVoice.addEventListener('click', () => {

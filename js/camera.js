@@ -20,7 +20,7 @@ class CameraController {
 
     // Camera hardware & lens management
     this.availableDevices = [];
-    this.selectedDeviceId = null;
+    this.selectedDeviceId = (typeof localStorage !== 'undefined' && localStorage.getItem('drisvya_camera_id')) || null;
     this.isUltraWideActive = false;
     this.activeTrack = null;
 
@@ -66,6 +66,7 @@ class CameraController {
     }
 
     this.bindCameraSelectionControls();
+    this.discoverCameraDevices();
     this.updateDetectionUI();
   }
 
@@ -92,6 +93,9 @@ class CameraController {
         const deviceId = e.target.value;
         if (deviceId && deviceId !== this.selectedDeviceId) {
           this.selectedDeviceId = deviceId;
+          try {
+            localStorage.setItem('drisvya_camera_id', deviceId);
+          } catch (err) {}
           if (this.isActive) {
             await this.restartWithDevice(deviceId);
           }
@@ -110,30 +114,31 @@ class CameraController {
     const container = document.getElementById('cameraSelectContainer');
     const selectEl = document.getElementById('cameraSelectDropdown');
     const ultraWideBtn = document.getElementById('btnToggleUltraWide');
+    const statusNoteText = document.getElementById('ultraWideStatusText');
 
     if (!selectEl) return;
 
-    // Show device selector if more than 1 camera is available
-    if (this.availableDevices.length > 1) {
-      if (container) container.style.display = 'flex';
-      selectEl.innerHTML = '';
+    selectEl.innerHTML = '';
 
-      let backCameraIndex = 1;
-      let ultraWideCandidate = null;
+    let backCameraIndex = 1;
+    let ultraWideCandidate = null;
+    let hasUltraWide = false;
 
+    if (this.availableDevices.length > 0) {
       this.availableDevices.forEach((device) => {
         const option = document.createElement('option');
         option.value = device.deviceId;
-        const label = device.label.toLowerCase();
+        const label = (device.label || '').toLowerCase();
 
-        let friendlyName = `Camera ${selectEl.options.length + 1}`;
-        if (label.includes('front') || label.includes('user')) {
+        let friendlyName = `Camera ${selectEl.options ? selectEl.options.length + 1 : 1}`;
+        if (label.includes('front') || label.includes('user') || label.includes('selfie')) {
           friendlyName = 'Front Camera';
         } else if (label.includes('ultra') || label.includes('wide') || label.includes('0.5') || label.includes('0.6')) {
           friendlyName = 'Ultra-Wide Camera (0.5x)';
           ultraWideCandidate = device.deviceId;
+          hasUltraWide = true;
         } else if (label.includes('back') || label.includes('rear') || label.includes('environment')) {
-          friendlyName = backCameraIndex === 1 ? 'Main Rear Camera' : `Rear Camera ${backCameraIndex}`;
+          friendlyName = backCameraIndex === 1 ? 'Main Rear Camera (1.0x)' : `Rear Camera ${backCameraIndex}`;
           backCameraIndex++;
         }
 
@@ -143,21 +148,39 @@ class CameraController {
         }
         selectEl.appendChild(option);
       });
-
-      // If user has not picked a device yet, prefer rear or ultra-wide
-      if (!this.selectedDeviceId && ultraWideCandidate) {
-        // Can be switched when user requests
-      }
     } else {
-      if (container) container.style.display = 'none';
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = 'Rear Camera (Default)';
+      selectEl.appendChild(option);
     }
 
-    // Check zoom capability on active track for Android digital/optical wide-angle toggle
+    // Check zoom capabilities on active camera track
+    let hasHardwareZoom = false;
+    let minZoom = 1.0;
     if (this.activeTrack && this.activeTrack.getCapabilities) {
       const caps = this.activeTrack.getCapabilities();
       if (caps.zoom && ultraWideBtn) {
+        hasHardwareZoom = true;
+        minZoom = caps.zoom.min || 1.0;
         ultraWideBtn.style.display = 'inline-flex';
-        ultraWideBtn.textContent = this.isUltraWideActive ? "1.0x Normal" : `${caps.zoom.min < 1 ? caps.zoom.min : 0.5}x Wide`;
+        ultraWideBtn.textContent = this.isUltraWideActive ? "1.0x Normal" : `${minZoom < 1 ? minZoom : 0.5}x Wide`;
+        if (minZoom < 1.0) {
+          hasUltraWide = true;
+        }
+      }
+    }
+
+    // Honest reporting in Ultra-Wide Availability Note
+    if (statusNoteText) {
+      if (hasUltraWide || (hasHardwareZoom && minZoom < 1.0)) {
+        statusNoteText.textContent = "Ultra-wide lens detected and active. Providing maximum peripheral view.";
+      } else if (this.availableDevices.length > 1) {
+        statusNoteText.textContent = `Multiple cameras detected (${this.availableDevices.length}). Select auxiliary lens from dropdown if ultra-wide is supported by device.`;
+      } else if (this.isActive) {
+        statusNoteText.textContent = "Standard rear camera active. Ultra-wide lens is not exposed by this device or browser.";
+      } else {
+        statusNoteText.textContent = "Rear camera ready. Additional lenses will be verified upon starting assistance.";
       }
     }
   }
@@ -211,6 +234,11 @@ class CameraController {
 
   async startAssistance() {
     if (this.isActive) return;
+
+    // Crucial: Unlock speech audio engine upon user gesture
+    if (window.voiceAssistant) {
+      window.voiceAssistant.unlockAudio();
+    }
 
     if (window.soundEngine) {
       window.soundEngine.playStart();
@@ -467,7 +495,11 @@ class CameraController {
 
     this.updateDetectionUI();
     this.renderLiveDetectionList(predictions);
-    this.announceCriticalObstacles(predictions);
+    
+    // Delegate intelligent voice narration & urgent obstacle alerts to VoiceAssistant
+    if (window.voiceAssistant && window.voiceAssistant.handleDetections) {
+      window.voiceAssistant.handleDetections(predictions);
+    }
   }
 
   /**
@@ -515,51 +547,11 @@ class CameraController {
   }
 
   /**
-   * Intelligent speech narration of detected objects (throttled)
+   * Intelligent speech narration of detected objects (delegates to VoiceAssistant)
    */
   announceCriticalObstacles(predictions) {
-    if (!predictions.length || !window.voiceAssistant) return;
-    const now = Date.now();
-    if (now - this.lastSpokenTime < this.spokenCooldown) return;
-
-    // Prioritize largest/nearest object
-    const sorted = [...predictions].sort((a, b) => (b.bbox[2] * b.bbox[3]) - (a.bbox[2] * a.bbox[3]));
-    const primary = sorted[0];
-
-    const pos = primary.spatial ? primary.spatial.position : 'Centre';
-    const speechKey = `${primary.class}_${pos}`;
-
-    // Avoid repeating same object/position within 4 seconds unless it changed
-    if (speechKey === this.lastSpokenKey && now - this.lastSpokenTime < 4500) {
-      return;
-    }
-
-    this.lastSpokenKey = speechKey;
-    this.lastSpokenTime = now;
-
-    const isHindi = window.voiceAssistant.currentLanguage === 'hi';
-    let message = '';
-
-    if (isHindi) {
-      const posHi = primary.spatial ? primary.spatial.positionHi : 'सामने';
-      message = `${posHi} ${primary.class} दिखाई दे रहा है।`;
-    } else {
-      if (pos === 'Centre') {
-        message = `${primary.class} ahead in centre.`;
-      } else {
-        message = `${primary.class} detected on your ${pos.toLowerCase()}.`;
-      }
-    }
-
-    window.voiceAssistant.speak(message);
-
-    // Haptic feedback pulse on person or obstacle directly in centre
-    if (pos === 'Centre' && window.a11yManager) {
-      window.a11yManager.vibrate([60, 40, 60]);
-    }
-
-    if (window.app) {
-      window.app.logActivity(`${primary.class} detected · ${pos}`, "voice");
+    if (window.voiceAssistant && window.voiceAssistant.handleDetections) {
+      window.voiceAssistant.handleDetections(predictions);
     }
   }
 

@@ -71,9 +71,21 @@ body.high-contrast-mode .history-card,
 body.high-contrast-mode .safety-disclaimer-card,
 body.high-contrast-mode .permission-instructions-card,
 body.high-contrast-mode .camera-select-row,
+body.high-contrast-mode .lens-status-note,
+body.high-contrast-mode .audio-route-pill,
 body.high-contrast-mode .modal-sheet {
   border: 2px solid #ffffff !important;
   background: #000000 !important;
+  color: #ffffff !important;
+}
+
+body.high-contrast-mode .audio-route-pill {
+  color: #ffff00 !important;
+  border-color: #ffff00 !important;
+}
+
+body.high-contrast-mode .audio-route-dot {
+  background: #ffff00 !important;
 }
 
 body.high-contrast-mode .camera-select-dropdown {
